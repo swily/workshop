@@ -26,7 +26,7 @@ helm get values prometheus-operator -n monitoring > /dev/null || \
   helm install prometheus-operator prometheus-community/kube-prometheus-stack \
     --namespace monitoring \
     --create-namespace \
-    --values ./templates/prometheus-operator-values.yaml
+    --values ../templates/prometheus-operator-values.yaml
 
 # Wait for essential Prometheus Operator CRDs
 ESSENTIAL_CRDS="prometheuses.monitoring.coreos.com servicemonitors.monitoring.coreos.com"
@@ -71,4 +71,5 @@ done
 sleep 30
 
 # Apply ServiceMonitors
-kubectl apply -f ./templates/service-monitors.yaml
+kubectl apply -f ../templates/service-monitors.yaml
+kubectl apply -f ../templates/kubelet-servicemonitor.yaml
