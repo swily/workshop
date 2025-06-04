@@ -107,8 +107,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(otelcol_http_server_duration_bucket[5m])))",
-          "legendFormat": "{{service_name}} p95",
+          "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "API {{verb}} p95",
           "range": true,
           "refId": "A"
         },
@@ -118,8 +118,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (service_name, le) (rate(otelcol_http_server_duration_bucket[5m])))",
-          "legendFormat": "{{service_name}} p50",
+          "expr": "histogram_quantile(0.50, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "API {{verb}} p50",
           "range": true,
           "refId": "B"
         }
@@ -203,8 +203,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum(rate(otelcol_http_server_duration_bucket[5m])) by (service_name, le)",
-          "legendFormat": "{{service_name}} {{le}}",
+          "expr": "sum(rate(rest_client_request_duration_seconds_bucket[5m])) by (verb, le)",
+          "legendFormat": "{{verb}} {{le}}",
           "range": true,
           "refId": "A"
         }
@@ -302,8 +302,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "(sum(rate(otelcol_http_server_duration_bucket{le=\"0.5\"}[5m])) by (service_name) + sum(rate(otelcol_http_server_duration_bucket{le=\"2\"}[5m])) by (service_name)) / 2 / sum(rate(otelcol_http_server_duration_count[5m])) by (service_name)",
-          "legendFormat": "{{service_name}}",
+          "expr": "sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le)",
+          "legendFormat": "DNS Requests",
           "range": true,
           "refId": "A"
         }
@@ -370,8 +370,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(otelcol_http_server_duration_bucket[5m])))",
-          "legendFormat": "{{service_name}}",
+          "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(kubelet_http_requests_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{verb}}",
           "range": true,
           "refId": "A"
         }

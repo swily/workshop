@@ -214,8 +214,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum by (service_name) (rate(otelcol_http_server_duration_count{status_code=~\"5.*\"}[5m])) / sum by (service_name) (rate(otelcol_http_server_duration_count[5m]))",
-          "legendFormat": "{{service_name}}",
+          "expr": "sum by (verb) (rate(kubelet_http_requests_duration_seconds_count{code=~\"5.*\"}[5m])) / sum by (verb) (rate(kubelet_http_requests_duration_seconds_count[5m]))",
+          "legendFormat": "{{verb}}",
           "range": true,
           "refId": "A"
         }
@@ -299,8 +299,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum(rate(http_client_duration_seconds_count{status_code!~\"2.*\"}[5m])) by (client_service, server_service)",
-          "legendFormat": "{{client_service}} -> {{server_service}}",
+          "expr": "sum(rate(apiserver_request_duration_seconds_count{code!~\"2.*\"}[5m])) by (verb, resource)",
+          "legendFormat": "{{verb}} -> {{resource}}",
           "range": true,
           "refId": "A"
         }
@@ -364,8 +364,8 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum by (service_name) (rate(otelcol_http_server_duration_count{status_code=~\"5.*\"}[5m])) / sum by (service_name) (rate(otelcol_http_server_duration_count[5m]))",
-          "legendFormat": "{{service_name}}",
+          "expr": "sum by (verb) (rate(kubelet_http_requests_duration_seconds_count{code=~\"5.*\"}[5m])) / sum by (verb) (rate(kubelet_http_requests_duration_seconds_count[5m]))",
+          "legendFormat": "{{verb}}",
           "range": true,
           "refId": "A"
         }
