@@ -1,0 +1,16 @@
+# Add after eksctl utils write-kubeconfig line:
+
+# Install Prometheus Operator
+echo "Installing Prometheus Operator..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm get values prometheus-operator -n monitoring > /dev/null || \
+  helm install prometheus-operator prometheus-community/kube-prometheus-stack \
+    --namespace monitoring \
+    --create-namespace \
+    --values ./templates/prometheus-operator-values.yaml
+
+# Apply ServiceMonitors
+kubectl apply -f ./templates/service-monitors.yaml
+
+# Continue with existing OTEL installation...

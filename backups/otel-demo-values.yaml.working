@@ -1,0 +1,78 @@
+components:
+  frontendProxy:
+    service:
+      type: LoadBalancer
+opentelemetry-collector:
+  config:
+    connectors:
+      datadog/connector: null
+    exporters:
+      datadog:
+        api:
+          key: ${DD_API_KEY}
+          site: ${DD_SITE_PARAMETER}
+        hostname: otelcol-helm
+        traces:
+          span_name_as_resource_name: true
+          trace_buffer: 500
+      otlphttp:
+        endpoint: ${NR_API_ENDPOINT}
+        headers:
+          api-key: ${NR_API_KEY}
+      otlphttp/dynatrace:
+        endpoint: ${DT_OTLP_ENDPOINT}
+        headers:
+          Authorization: Api-Token ${DT_API_TOKEN}
+    processors:
+      cumulativetodelta: null
+      filter/histograms:
+        error_mode: ignore
+        metrics:
+          metric:
+          - type == METRIC_DATA_TYPE_HISTOGRAM
+      resource:
+        attributes:
+        - action: upsert
+          key: deployment.environment
+          value: otel
+    service:
+      pipelines:
+        logs:
+          exporters:
+          - opensearch
+          - debug
+          - datadog
+          - otlphttp
+          - otlphttp/dynatrace
+          processors:
+          - batch
+          - resource
+        metrics:
+          exporters:
+          - otlphttp/prometheus
+          - debug
+          - datadog
+          - otlphttp
+          - otlphttp/dynatrace
+          processors:
+          - batch
+          - resource
+          receivers:
+          - otlp
+          - spanmetrics
+          - datadog/connector
+        traces:
+          exporters:
+          - otlp
+          - debug
+          - spanmetrics
+          - datadog
+          - datadog/connector
+          - otlphttp
+          - otlphttp/dynatrace
+          processors:
+          - batch
+          - resource
+  extraEnvsFrom:
+  - secretRef:
+      name: otelcol-keys

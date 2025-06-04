@@ -1,0 +1,80 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+# extra settings to be merged into OpenTelemetry Collector configuration
+# do not delete this file
+
+## Example configuration for sending data to your own OTLP HTTP backend
+## Note: the spanmetrics exporter must be included in the exporters array
+## if overriding the traces pipeline.
+##
+#  exporters:
+#    otlphttp/example:
+#      endpoint: <your-endpoint-url>
+#
+#  service:
+#    pipelines:
+#      traces:
+#        exporters: [spanmetrics, otlphttp/example]
+
+opentelemetry-collector:
+  # Commented out as we're not using external exporters
+  # extraEnvsFrom:
+  #   - secretRef:
+  #       name: otelcol-keys
+  config:
+    exporters:
+      # Datadog exporter - uncomment and configure if needed
+      # datadog:
+      #   traces:
+      #     span_name_as_resource_name: true
+      #     trace_buffer: 500
+      #   hostname: "otelcol-helm"
+      #   api:
+      #     site: "${DD_SITE_PARAMETER}"
+      #     key: ${DD_API_KEY}
+
+      # New Relic exporter - uncomment and configure if needed
+      # otlphttp:
+      #   endpoint: "${NR_API_ENDPOINT}"
+      #   headers:
+      #     api-key: "${NR_API_KEY}"
+
+      # Dynatrace exporter - uncomment and configure if needed
+      # otlphttp/dynatrace:
+      #   endpoint: "${DT_OTLP_ENDPOINT}"
+      #   headers:
+      #     Authorization: "Api-Token ${DT_API_TOKEN}"
+    processors:
+      resource:
+        attributes:
+          - key: deployment.environment
+            value: "otel"
+            action: upsert
+      cumulativetodelta: 
+      filter/histograms: 
+        error_mode: ignore 
+        metrics: 
+          metric: 
+              - 'type == METRIC_DATA_TYPE_HISTOGRAM'
+    connectors:
+        # datadog/connector:
+
+    service:
+      pipelines:
+        traces:
+          processors: [batch, resource]
+          exporters: [otlp, debug, spanmetrics, otlphttp]
+        metrics:
+          receivers: [otlp, spanmetrics]
+          processors: [batch, resource]
+          exporters: [otlphttp/prometheus, debug, otlphttp]
+        logs:
+          processors: [batch, resource]
+          exporters: [opensearch, debug, otlphttp]
+
+components:
+  frontendProxy:
+    service:
+      type: LoadBalancer
+---
