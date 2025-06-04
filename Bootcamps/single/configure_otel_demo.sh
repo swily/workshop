@@ -19,7 +19,7 @@ helm install otel-demo open-telemetry/opentelemetry-demo \
   --version 0.34.2 \
   --create-namespace \
   -n otel-demo \
-  --values ./templates/otelcol-config-extras.yaml
+  --values ../templates/otelcol-config-extras.yaml
 
 # Wait for deployments to be created and ready
 for service in $SERVICES; do
