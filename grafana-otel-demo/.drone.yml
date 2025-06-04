@@ -1,0 +1,115 @@
+---
+kind: pipeline
+type: docker
+name: docker-push
+
+trigger:
+  branch:
+    - grafana
+  event:
+    exclude:
+      - pull_request
+      - tag
+    include:
+      - push
+
+steps:
+- name: adservice-docker
+  image: plugins/gcr
+  environment:
+    DOCKER_BUILDKIT: 1
+  settings:
+    dockerfile: ./src/adservice/Dockerfile
+    registry: us.gcr.io
+    repo: kubernetes-dev/opentelemetry-demo-adservice
+    tags:
+      - latest
+      - ${DRONE_COMMIT_SHA:0:7}
+    json_key:
+      from_secret: gcr_credentials
+- name: checkoutservice-docker
+  image: plugins/gcr
+  environment:
+    DOCKER_BUILDKIT: 1
+  settings:
+    dockerfile: ./src/checkoutservice/Dockerfile
+    registry: us.gcr.io
+    repo: kubernetes-dev/opentelemetry-demo-checkoutservice
+    tags:
+      - latest
+      - ${DRONE_COMMIT_SHA:0:7}
+    json_key:
+      from_secret: gcr_credentials
+- name: frauddetectionservice-docker
+  image: plugins/gcr
+  environment:
+    DOCKER_BUILDKIT: 1
+  settings:
+    dockerfile: ./src/frauddetectionservice/Dockerfile
+    registry: us.gcr.io
+    repo: kubernetes-dev/opentelemetry-demo-frauddetectionservice
+    tags:
+      - latest
+      - ${DRONE_COMMIT_SHA:0:7}
+    json_key:
+      from_secret: gcr_credentials
+- name: productcatalogservice-docker
+  image: plugins/gcr
+  environment:
+    DOCKER_BUILDKIT: 1
+  settings:
+    dockerfile: ./src/productcatalogservice/Dockerfile
+    registry: us.gcr.io
+    repo: kubernetes-dev/opentelemetry-demo-productcatalogservice
+    tags:
+      - latest
+      - ${DRONE_COMMIT_SHA:0:7}
+    json_key:
+      from_secret: gcr_credentials
+- name: frontend-docker
+  image: plugins/gcr
+  environment:
+    DOCKER_BUILDKIT: 1
+  settings:
+    dockerfile: ./src/frontend/Dockerfile.ci
+    registry: us.gcr.io
+    repo: kubernetes-dev/opentelemetry-demo-frontend
+    tags:
+      - latest
+      - ${DRONE_COMMIT_SHA:0:7}
+    context: ./src/frontend/
+    json_key:
+      from_secret: gcr_credentials
+---
+kind: secret
+name: gcp_key
+
+get:
+    name: gcp_key
+    path: infra/data/ci/drone-plugins
+---
+kind: secret
+name: gh_token
+
+get:
+  name: pat
+  path: infra/data/ci/github/grafanabot
+---
+get:
+  name: service-account
+  path: infra/data/ci/gcr-admin
+kind: secret
+name: gcr_credentials
+---
+kind: secret
+name: dockerconfigjson
+
+get:
+  path: secret/data/common/gcr
+  name: .dockerconfigjson
+
+---
+kind: signature
+hmac: 4c6abe54b8639e0f8982f0d6939aa3b98bb391461b59d59ec8cb3b262fc727c4
+
+...
