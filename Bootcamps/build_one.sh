@@ -21,8 +21,11 @@ echo "Build completed."
 echo "Waiting 5 minutes for build to stabilize before configuring cluster..."
 sleep 300
 
-echo "Configuring cluster..."
-bash ./single/configure_cluster.sh
+echo "Configuring cluster base components..."
+bash ./single/configure_cluster_base.sh
+
+echo "Installing OpenTelemetry demo..."
+bash ./single/configure_otel_demo.sh
 
 echo "Getting load balancer endpoints..."
 bash ./single/get_http_endpoints.sh
