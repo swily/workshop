@@ -36,17 +36,25 @@ grafana:
       type: prometheus
       url: http://otel-demo-prometheus-server.otel-demo:9090
       access: proxy
-      isDefault: true
+      isDefault: false
 
   dashboardProviders:
     dashboardproviders.yaml:
       apiVersion: 1
       providers:
-        - name: 'container-metrics'
+        - name: 'otel-demo'
           orgId: 1
-          folder: 'Container Metrics'
+          folder: 'OpenTelemetry Demo'
           type: file
           disableDeletion: false
           editable: true
           options:
-            path: /var/lib/grafana/dashboards/container-metrics
+            path: /var/lib/grafana/dashboards/otel-demo
+
+  dashboards:
+    default:
+      otel-demo:
+        # This will mount the dashboards from the demo into Grafana
+        configMapRef: otel-demo-dashboards
+        enabled: true
+
