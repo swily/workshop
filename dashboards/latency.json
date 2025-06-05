@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -98,13 +98,13 @@
           "sort": "desc"
         }
       },
-      "title": "Service Response Time",
+      "title": "API Server Response Time",
       "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
@@ -115,7 +115,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
@@ -128,7 +128,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -194,13 +194,13 @@
         }
       },
       "pluginVersion": "9.1.6",
-      "title": "Latency Distribution Heatmap",
+      "title": "REST Client Latency Distribution",
       "type": "heatmap",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(rest_client_request_duration_seconds_bucket[5m])) by (verb, le)",
@@ -213,7 +213,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -223,7 +223,7 @@
           "custom": {
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Apdex Score",
+            "axisLabel": "Latency",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
@@ -293,17 +293,17 @@
           "sort": "desc"
         }
       },
-      "title": "Service Apdex Score",
+      "title": "CoreDNS Request Latency",
       "type": "timeseries",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(coredns_dns_request_duration_seconds_bucket[5m])) by (le)",
-          "legendFormat": "DNS Requests",
+          "expr": "histogram_quantile(0.95, sum by (server, le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "DNS Server {{server}} p95",
           "range": true,
           "refId": "A"
         }
@@ -312,7 +312,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "webstore-metrics"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -361,17 +361,17 @@
         "showThresholdMarkers": true
       },
       "pluginVersion": "9.1.6",
-      "title": "Current Service Latency",
+      "title": "Kubelet HTTP Request Latency",
       "type": "gauge",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "webstore-metrics"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(kubelet_http_requests_duration_seconds_bucket[5m])))",
-          "legendFormat": "{{verb}}",
+          "expr": "histogram_quantile(0.95, sum by (handler, le) (rate(kubelet_http_requests_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{handler}}",
           "range": true,
           "refId": "A"
         }
@@ -391,7 +391,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Service Latency Analysis",
+  "title": "Kubernetes System Latency Analysis",
   "version": 1,
   "weekStart": ""
 }
