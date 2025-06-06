@@ -22,13 +22,20 @@ eksctl utils write-kubeconfig --cluster ${CLUSTER_NAME}
 # Install Prometheus Operator
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
-helm get values prometheus-operator -n monitoring > /dev/null || \
+echo "Checking if Prometheus Operator is installed..."
+if ! helm get values prometheus-operator -n monitoring > /dev/null 2>&1; then
+  echo "Prometheus Operator not found. Installing..."
+
   helm install prometheus-operator prometheus-community/kube-prometheus-stack \
     --namespace monitoring \
     --create-namespace \
     --values ./templates/prometheus-operator-values.yaml
+else
+  echo "Prometheus Operator found. Waiting for components to be ready..."
+fi
 
-# Wait for essential Prometheus Operator CRDs
+echo "Waiting for essential Prometheus Operator CRDs..."
+
 ESSENTIAL_CRDS="prometheuses.monitoring.coreos.com servicemonitors.monitoring.coreos.com"
 
 for crd in $ESSENTIAL_CRDS; do
@@ -41,18 +48,18 @@ for crd in $ESSENTIAL_CRDS; do
     done
 done
 
-# Wait for Prometheus Operator core components to be ready
+echo "Waiting for Prometheus Operator deployment..."
 # Wait for operator
 while [[ $(kubectl get pods -n monitoring -l "app.kubernetes.io/name=kube-prometheus-stack-prometheus-operator" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
     sleep 5
 done
 
-# Wait for Grafana
+echo "Waiting for Grafana deployment..."
 while [[ $(kubectl get pods -n monitoring -l "app.kubernetes.io/name=grafana" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
     sleep 5
 done
 
-# Wait for kube-state-metrics
+echo "Waiting for kube-state-metrics deployment..."
 while [[ $(kubectl get pods -n monitoring -l "app.kubernetes.io/name=kube-state-metrics" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
     sleep 5
 done
@@ -62,15 +69,27 @@ while [[ $(kubectl get pods -n monitoring -l "app.kubernetes.io/name=prometheus"
     sleep 5
 done
 
-# Wait for Alertmanager
+echo "Waiting for Alertmanager deployment..."
 while [[ $(kubectl get pods -n monitoring -l "app.kubernetes.io/name=alertmanager" -o 'jsonpath={..status.conditions[?(@.type=="Ready")].status}') != "True" ]]; do
     sleep 5
 done
 
-# Wait an additional 30 seconds for all components to fully initialize
+echo "Waiting 30 seconds for components to fully initialize..."
 sleep 30
 
-# Apply ServiceMonitors and Grafana LoadBalancer
+echo "Applying ServiceMonitors and Grafana LoadBalancer..."
 kubectl apply -f ./templates/service-monitors.yaml
 kubectl apply -f ./templates/kubelet-servicemonitor.yaml
 kubectl apply -f ./templates/monitoring-grafana-lb.yaml
+
+echo "
+✅ Base cluster configuration completed successfully!
+
+Next steps:
+1. Set your Gremlin credentials as environment variables:
+   export TEAM_ID=<your-team-id>
+   export TEAM_SECRET=<your-team-secret>
+
+2. Run the OpenTelemetry demo configuration:
+   ./configure_otel_demo.sh
+"

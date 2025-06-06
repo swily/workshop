@@ -1,28 +1,29 @@
-# Workshop Enhanced
+# Workshop
 
-## Script Directory Requirements
+## Repository Structure
 
 All scripts in this repository are designed to be run from the root directory. The main entry point is `build_one.sh`, which orchestrates the cluster creation and configuration process.
 
-Directory structure:
 ```
 /
-├── build_one.sh              # Main entry point
-├── build_cluster.sh         # Called by build_one.sh
-├── configure_cluster_base.sh
-├── configure_otel_demo.sh
-├── clean_cluster.sh         # Cleans cluster resources
-├── delete_cluster.sh        # Deletes the entire cluster
-├── refresh_dns_record.sh
-├── dashboards/             # Grafana dashboards
-│   ├── latency.json
-│   └── memory.json
-├── templates/              # Kubernetes and configuration templates
-│   ├── eksctl-custom.yaml
-│   └── otelcol-config-gremlin-enhanced.yaml
-└── yaml/                   # Kubernetes service manifests
+├── build_one.sh                # Main orchestration script
+├── build_cluster.sh            # Creates EKS cluster
+├── configure_cluster_base.sh    # Sets up monitoring infrastructure
+├── configure_otel_demo.sh       # Deploys OpenTelemetry demo
+├── clean_cluster.sh            # Cleans cluster resources
+├── delete_cluster.sh           # Deletes the entire cluster
+├── refresh_dns_record.sh       # Updates Route53 DNS records
+├── dashboards/                 # Grafana dashboards
+├── subscripts/                 # Helper scripts
+│   └── install_gremlin.sh
+└── templates/                  # Kubernetes and configuration
     ├── frontend-service.yaml
-    └── monitoring-grafana-lb.yaml
+    ├── gremlin-*-recording-rules.yaml
+    ├── kubelet-servicemonitor.yaml
+    ├── monitoring-grafana-lb.yaml
+    ├── otelcol-config-extras.yaml
+    ├── prometheus-operator-values.yaml
+    └── service-monitors.yaml
 ```
 
 ## Prerequisites
@@ -36,50 +37,65 @@ Before starting, ensure you have the following installed and configured:
 
 ## Setup
 
-1. Clone this repository and navigate to the workshop directory:
+1. Clone this repository:
    ```bash
-   cd workshop_enhanced/Bootcamps
+   git clone <repository-url>
+   cd workshop
    ```
 
 2. Set required environment variables:
    ```bash
    # Set your desired EKS cluster name
    export CLUSTER_NAME=your-cluster-name
-   
-   # Set your Gremlin credentials
-   export GREMLIN_TEAM_ID=your-team-id
-   export GREMLIN_TEAM_SECRET=your-team-secret
-   ```
 
-3. Run the build script to create the EKS cluster and deploy all components:
-   ```bash
-   ./build_one.sh
-   ```
+This script:
+1. Creates an EKS cluster
+2. Waits for cluster stabilization
+3. Installs Prometheus and Grafana
+4. Deploys the OpenTelemetry demo application
+5. Configures Gremlin for chaos engineering
 
-## Accessing Dashboards
 
-1. Start port forwarding for Grafana:
-   ```bash
-   kubectl port-forward svc/prometheus-operator-grafana 3000:80 -n monitoring &
-   ```
-   Access Grafana at: http://localhost:3000
-   - Username: `admin`
-   - Password: `prom-operator`
 
-2. Start port forwarding for Prometheus (optional, for direct metric queries):
-   ```bash
-   kubectl port-forward -n monitoring svc/prometheus-operator-kube-p-prometheus 9090:9090 &
-   ```
-   Access Prometheus at: http://localhost:9090
+## Monitoring
 
-## Recommended Dashboards
+### Grafana Dashboards
 
-Once in Grafana, the following dashboards are useful for monitoring during chaos experiments:
+The following optimized dashboards are available:
 
-1. **Kubernetes / Compute Resources / Namespace**
-   - Shows CPU and memory usage across your namespaces
-   - Useful for monitoring overall resource consumption
+1. **CPU Dashboard**
+   - Container CPU usage with recording rules
+   - 30-second refresh interval
+   - Optimized query performance
 
-2. **Kubernetes / Networking / Namespace**
-   - Network traffic patterns and potential issues
-   - Shows network latency and error rates
+2. **Memory Dashboard**
+   - Container memory metrics
+   - Working set and cache monitoring
+   - Pre-computed recording rules
+
+3. **Network HTTP Dashboard**
+   - HTTP request rates
+   - DNS request latency
+   - Error rates monitoring
+
+4. **Latency Dashboard**
+   - API server request durations
+   - CoreDNS performance
+   - Kubelet and REST client latency
+
+### Access
+
+Grafana is accessible via LoadBalancer service. The URL will be displayed after deployment completion.
+
+Default credentials:
+- Username: admin
+- Password: (retrieved from Kubernetes secret)
+
+## Chaos Engineering
+
+Gremlin is automatically configured with:
+- Service-level targeting using Kubernetes annotations
+- Cluster identification for experiments
+- Full integration with monitoring stack
+
+Refer to Gremlin documentation for running chaos experiments.

@@ -42,4 +42,4 @@ done
 kubectl apply -f ./templates/frontend-service.yaml
 
 # Install Gremlin
-bash "$( dirname "${BASH_SOURCE[0]}" )/install_gremlin.sh"
+bash "$( dirname "${BASH_SOURCE[0]}" )/subscripts/install_gremlin.sh"
