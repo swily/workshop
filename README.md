@@ -2,25 +2,27 @@
 
 ## Script Directory Requirements
 
-The scripts in this repository have specific directory requirements:
-
-- `build_one.sh` must be run from the `/Bootcamps` directory
-- `configure_cluster_base.sh` and other configuration scripts in `single/` must be run from the `/Bootcamps/single` directory
-- `clean_cluster.sh` can be run from any directory (no path dependencies)
+All scripts in this repository are designed to be run from the root directory. The main entry point is `build_one.sh`, which orchestrates the cluster creation and configuration process.
 
 Directory structure:
 ```
-/Bootcamps/
-  ├── build_one.sh              # Run from /Bootcamps
-  ├── single/
-  │   ├── configure_cluster_base.sh   # Run from /Bootcamps/single
-  │   ├── configure_otel_demo.sh
-  │   ├── build_cluster.sh
-  │   └── get_http_endpoints.sh
-  └── templates/
-      ├── prometheus-operator-values.yaml
-      ├── service-monitors.yaml
-      └── kubelet-servicemonitor.yaml
+/
+├── build_one.sh              # Main entry point
+├── build_cluster.sh         # Called by build_one.sh
+├── configure_cluster_base.sh
+├── configure_otel_demo.sh
+├── clean_cluster.sh         # Cleans cluster resources
+├── delete_cluster.sh        # Deletes the entire cluster
+├── refresh_dns_record.sh
+├── dashboards/             # Grafana dashboards
+│   ├── latency.json
+│   └── memory.json
+├── templates/              # Kubernetes and configuration templates
+│   ├── eksctl-custom.yaml
+│   └── otelcol-config-gremlin-enhanced.yaml
+└── yaml/                   # Kubernetes service manifests
+    ├── frontend-service.yaml
+    └── monitoring-grafana-lb.yaml
 ```
 
 ## Prerequisites

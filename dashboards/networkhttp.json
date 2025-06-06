@@ -103,7 +103,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum by (verb) (rate(prometheus_http_request_duration_seconds_count[5m]))",
+          "expr": "gremlin:http_requests:rate5m",
           "legendFormat": "{{verb}}",
           "range": true,
           "refId": "A"
@@ -192,7 +192,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))",
+          "expr": "gremlin:dns_request_duration:p95:rate5m",
           "legendFormat": "DNS {{verb}} p95",
           "range": true,
           "refId": "A"
@@ -285,7 +285,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum by (verb) (rate(kubelet_http_requests_duration_seconds_count{code=~\"5.*\"}[5m])) / sum by (verb) (rate(kubelet_http_requests_duration_seconds_count[5m]))",
+          "expr": "gremlin:http_error_rate:rate5m",
           "legendFormat": "{{verb}}",
           "range": true,
           "refId": "A"
@@ -374,7 +374,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "rate(coredns_forward_request_duration_seconds_count[5m])",
+          "expr": "gremlin:dns_forward_requests:rate5m",
           "legendFormat": "DNS Forward Requests",
           "range": true,
           "refId": "A"
@@ -385,7 +385,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "rate(coredns_health_request_duration_seconds_count[5m])",
+          "expr": "gremlin:dns_health_checks:rate5m",
           "legendFormat": "DNS Health Checks",
           "range": true,
           "refId": "B"
@@ -393,7 +393,7 @@
       ]
     }
   ],
-  "refresh": "10s",
+  "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
   "tags": ["network", "http"],

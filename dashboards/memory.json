@@ -103,7 +103,7 @@
       },
       "targets": [
         {
-          "expr": "container_memory_usage_bytes{container!=\"\"}",
+          "expr": "gremlin:container_memory_usage:bytes",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -288,7 +288,7 @@
       },
       "targets": [
         {
-          "expr": "container_memory_working_set_bytes{container!=\"\"}",
+          "expr": "gremlin:container_memory_working_set:bytes",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -378,7 +378,7 @@
       },
       "targets": [
         {
-          "expr": "container_memory_cache{container!=\"\"}",
+          "expr": "gremlin:container_memory_cache:bytes",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }
@@ -387,7 +387,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 41,
   "tags": [
     "memory",
@@ -510,7 +510,7 @@
         "pluginVersion": "12.0.0+security-01",
         "targets": [
           {
-            "expr": "container_memory_usage_bytes{container!=\"\"}",
+            "expr": "gremlin:container_memory_usage:bytes",
             "legendFormat": "{{pod}}",
             "refId": "A"
           }
@@ -703,7 +703,7 @@
         "pluginVersion": "12.0.0+security-01",
         "targets": [
           {
-            "expr": "container_memory_cache{container!=\"\"}",
+            "expr": "gremlin:container_memory_cache:bytes",
             "legendFormat": "{{pod}}",
             "refId": "A"
           }
@@ -797,7 +797,7 @@
         "pluginVersion": "12.0.0+security-01",
         "targets": [
           {
-            "expr": "container_memory_working_set_bytes{container!=\"\"}",
+            "expr": "gremlin:container_memory_working_set:bytes",
             "legendFormat": "{{pod}}",
             "refId": "A"
           }

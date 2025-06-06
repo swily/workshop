@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gremlin-latency-recording-rules
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    app.kubernetes.io/instance: prometheus-operator
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    release: prometheus-operator
+spec:
+  groups:
+  - name: gremlin.latency.rules
+    rules:
+    - expr: histogram_quantile(0.95, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))
+      record: gremlin:apiserver_request_duration:p95:rate5m
+    - expr: histogram_quantile(0.50, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))
+      record: gremlin:apiserver_request_duration:p50:rate5m
+    - expr: sum(rate(rest_client_request_duration_seconds_bucket[5m])) by (verb, le)
+      record: gremlin:rest_client_request_duration:rate5m
+    - expr: histogram_quantile(0.95, sum by (server, le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))
+      record: gremlin:coredns_request_duration:p95:rate5m
+    - expr: histogram_quantile(0.95, sum by (handler, le) (rate(kubelet_http_requests_duration_seconds_bucket[5m])))
+      record: gremlin:kubelet_request_duration:p95:rate5m

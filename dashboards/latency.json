@@ -107,7 +107,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
+          "expr": "gremlin:apiserver_request_duration:p95:rate5m",
           "legendFormat": "API {{verb}} p95",
           "range": true,
           "refId": "A"
@@ -118,7 +118,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (verb, le) (rate(apiserver_request_duration_seconds_bucket[5m])))",
+          "expr": "gremlin:apiserver_request_duration:p50:rate5m",
           "legendFormat": "API {{verb}} p50",
           "range": true,
           "refId": "B"
@@ -203,7 +203,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(rest_client_request_duration_seconds_bucket[5m])) by (verb, le)",
+          "expr": "gremlin:rest_client_request_duration:rate5m",
           "legendFormat": "{{verb}} {{le}}",
           "range": true,
           "refId": "A"
@@ -302,7 +302,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (server, le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))",
+          "expr": "gremlin:coredns_request_duration:p95:rate5m",
           "legendFormat": "DNS Server {{server}} p95",
           "range": true,
           "refId": "A"
@@ -370,7 +370,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (handler, le) (rate(kubelet_http_requests_duration_seconds_bucket[5m])))",
+          "expr": "gremlin:kubelet_request_duration:p95:rate5m",
           "legendFormat": "{{handler}}",
           "range": true,
           "refId": "A"
@@ -378,7 +378,7 @@
       ]
     }
   ],
-  "refresh": "5s",
+  "refresh": "30s",
   "schemaVersion": 38,
   "style": "dark",
   "tags": ["latency", "gremlin"],

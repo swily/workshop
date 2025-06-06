@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gremlin-memory-recording-rules
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    app.kubernetes.io/instance: prometheus-operator
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    release: prometheus-operator
+spec:
+  groups:
+  - name: gremlin.memory.rules
+    rules:
+    - expr: container_memory_usage_bytes{container!=""}
+      record: gremlin:container_memory_usage:bytes
+    - expr: container_memory_working_set_bytes{container!=""}
+      record: gremlin:container_memory_working_set:bytes
+    - expr: container_memory_cache{container!=""}
+      record: gremlin:container_memory_cache:bytes

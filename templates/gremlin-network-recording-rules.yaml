@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gremlin-network-recording-rules
+  namespace: monitoring
+  labels:
+    app: kube-prometheus-stack
+    app.kubernetes.io/instance: prometheus-operator
+    app.kubernetes.io/part-of: kube-prometheus-stack
+    release: prometheus-operator
+spec:
+  groups:
+  - name: gremlin.network.rules
+    rules:
+    - expr: sum by (verb) (rate(prometheus_http_request_duration_seconds_count[5m]))
+      record: gremlin:http_requests:rate5m
+    - expr: histogram_quantile(0.95, sum by (verb, le) (rate(coredns_dns_request_duration_seconds_bucket[5m])))
+      record: gremlin:dns_request_duration:p95:rate5m
+    - expr: sum by (verb) (rate(kubelet_http_requests_duration_seconds_count{code=~"5.*"}[5m])) / sum by (verb) (rate(kubelet_http_requests_duration_seconds_count[5m]))
+      record: gremlin:http_error_rate:rate5m
+    - expr: rate(coredns_forward_request_duration_seconds_count[5m])
+      record: gremlin:dns_forward_requests:rate5m
+    - expr: rate(coredns_health_request_duration_seconds_count[5m])
+      record: gremlin:dns_health_checks:rate5m
