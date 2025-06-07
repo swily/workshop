@@ -36,7 +36,7 @@ metadata:
 spec:
   endpoints:
   - interval: 30s
-    port: metrics
+    port: http
   namespaceSelector:
     matchNames:
       - otel-demo
@@ -53,7 +53,7 @@ metadata:
     release: prometheus-operator
 spec:
   endpoints:
-  - port: metrics
+  - port: http
     path: /metrics
   namespaceSelector:
     matchNames:
@@ -61,3 +61,143 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: otelcol
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otelcol-metrics
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: prometheus-metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otelcol
+      app.kubernetes.io/component: metrics
+---
+# ServiceMonitor for frontend
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-frontend
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-frontend
+---
+# ServiceMonitor for payment
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-payment
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-paymentservice
+---
+# ServiceMonitor for recommendation
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-recommendation
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-recommendationservice
+---
+# ServiceMonitor for checkout
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-checkout
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-checkoutservice
+---
+# ServiceMonitor for cart
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-cart
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-cartservice
+---
+# ServiceMonitor for ad
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-ad
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-demo-adservice

@@ -1,0 +1,312 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "webstore-metrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "title": "CPU Usage by Service (user)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "webstore-metrics"
+          },
+          "editorMode": "code",
+          "expr": "100 * avg by (job) (system_cpu_utilization_ratio{job=~\".+\", state=\"user\"})",
+          "legendFormat": "{{job}} (user)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+      "id": 2,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "adservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"adservice\", state=\"user\"})", "legendFormat": "adservice (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+      "id": 3,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "cartservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"cartservice\", state=\"user\"})", "legendFormat": "cartservice (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "id": 4,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "checkoutservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"checkoutservice\", state=\"user\"})", "legendFormat": "checkoutservice (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 18 },
+      "id": 5,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "flagd: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"flagd\", state=\"user\"})", "legendFormat": "flagd (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 18 },
+      "id": 6,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "frontend: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"frontend\", state=\"user\"})", "legendFormat": "frontend (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 18 },
+      "id": 7,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "frontend-web: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"frontend-web\", state=\"user\"})", "legendFormat": "frontend-web (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
+      "id": 8,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "frontendproxy: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"frontendproxy\", state=\"user\"})", "legendFormat": "frontendproxy (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
+      "id": 9,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "kafka: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"kafka\", state=\"user\"})", "legendFormat": "kafka (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
+      "id": 10,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "loadgenerator: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"loadgenerator\", state=\"user\"})", "legendFormat": "loadgenerator (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
+      "id": 11,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "otel-collector: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"otel-collector\", state=\"user\"})", "legendFormat": "otel-collector (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
+      "id": 12,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "productcatalogservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"productcatalogservice\", state=\"user\"})", "legendFormat": "productcatalogservice (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "id": 13,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "quoteservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"quoteservice\", state=\"user\"})", "legendFormat": "quoteservice (user)", "refId": "A" }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "webstore-metrics" },
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 42 },
+      "id": 14,
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } },
+      "title": "recommendationservice: User CPU %",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "100 * avg(system_cpu_utilization_ratio{job=\"recommendationservice\", state=\"user\"})", "legendFormat": "recommendationservice (user)", "refId": "A" }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 37,
+  "style": "dark",
+  "tags": [
+    "cpu",
+    "metrics",
+    "monitoring"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "30m",
+      "1h",
+      "2h",
+      "1d"
+    ],
+    "time_options": [
+      "5m",
+      "15m",
+      "1h",
+      "6h",
+      "12h",
+      "24h",
+      "2d",
+      "7d",
+      "30d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "Services_CPU view",
+  "version": 1,
+  "weekStart": ""
+}

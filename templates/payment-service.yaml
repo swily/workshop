@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-demo-payment
+  namespace: otel-demo
+  labels:
+    app.kubernetes.io/component: payment
+    app.kubernetes.io/instance: otel-demo
+    app.kubernetes.io/name: otel-demo-payment
+spec:
+  ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  - name: metrics
+    port: 9465
+    protocol: TCP
+    targetPort: 9465
+  selector:
+    app.kubernetes.io/component: payment
+    app.kubernetes.io/instance: otel-demo

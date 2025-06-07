@@ -1,0 +1,58 @@
+# GitHub Actions workflow to build and push a multi-arch Docker image for paymentservice with metrics endpoint
+# This workflow is triggered on push or PR to main or any branch that touches paymentservice code or Dockerfile
+#
+# It builds for both linux/amd64 and linux/arm64, and pushes to Docker Hub (or your registry of choice)
+#
+# You must set the following secrets in your GitHub repo:
+#   DOCKERHUB_USERNAME: your Docker Hub username
+#   DOCKERHUB_TOKEN: a Personal Access Token with push rights
+#   IMAGE_REPO: e.g. swily/workshop-paymentservice
+
+name: Build & Push paymentservice (with metrics) Docker image
+
+on:
+  push:
+    paths:
+      - 'opentelemetry-demo/src/payment/**'
+      - 'opentelemetry-demo/src/payment/Dockerfile'
+      - 'opentelemetry-demo/src/payment/package.json'
+      - 'opentelemetry-demo/src/payment/package-lock.json'
+      - 'opentelemetry-demo/src/payment/metrics-server.js'
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image (multi-arch)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: opentelemetry-demo/src/payment/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ secrets.IMAGE_REPO }}:metrics-latest,${{ secrets.IMAGE_REPO }}:${{ github.sha }}
+          build-args: |
+            PAYMENT_PORT=8080
+
+      - name: Image digest
+        run: echo "Image digest: ${{ steps.docker_build.outputs.digest }}"
