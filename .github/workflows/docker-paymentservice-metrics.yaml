@@ -55,5 +55,5 @@ jobs:
           build-args: |
             PAYMENT_PORT=8080
 
-      - name: Image digest
+      - name: Show image digest
         run: echo "Image digest: ${{ steps.docker_build.outputs.digest }}"
