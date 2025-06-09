@@ -13,7 +13,7 @@ name: Build & Push paymentservice (with metrics) Docker image
 on:
   push:
     paths:
-      - 'opentelemetry-demo/src/payment/**'
+      - 'src/payment/**'
       - '.github/workflows/docker-paymentservice-metrics.yaml'
   workflow_dispatch:
 
@@ -47,7 +47,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: opentelemetry-demo/src/payment/Dockerfile
+          file: src/payment/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.IMAGE_REPO }}:metrics-latest,${{ secrets.IMAGE_REPO }}:${{ github.sha }}
