@@ -14,10 +14,7 @@ on:
   push:
     paths:
       - 'opentelemetry-demo/src/payment/**'
-      - 'opentelemetry-demo/src/payment/Dockerfile'
-      - 'opentelemetry-demo/src/payment/package.json'
-      - 'opentelemetry-demo/src/payment/package-lock.json'
-      - 'opentelemetry-demo/src/payment/metrics-server.js'
+      - '.github/workflows/docker-paymentservice-metrics.yaml'
   workflow_dispatch:
 
 jobs:
