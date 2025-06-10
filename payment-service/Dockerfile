@@ -22,7 +22,6 @@ COPY --chown=node:node --from=build /usr/src/app/node_modules/ ./node_modules/
 COPY ./src/payment/ ./
 COPY ./pb/demo.proto ./
 
-EXPOSE 8080
-EXPOSE 9465 # Prometheus metrics
-EXPOSE ${PAYMENT_PORT}
+# Expose application and metrics ports
+EXPOSE 8080 9465 ${PAYMENT_PORT}
 ENTRYPOINT [ "npm", "run", "start" ]
