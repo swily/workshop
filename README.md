@@ -9,6 +9,7 @@ All scripts in this repository are designed to be run from the root directory. T
 ├── build_one.sh                # Main orchestration script
 ├── build_cluster.sh            # Creates EKS cluster
 ├── configure_cluster_base.sh    # Sets up monitoring infrastructure
+<!-- Trigger build -->
 ├── configure_otel_demo.sh       # Deploys OpenTelemetry demo
 ├── clean_cluster.sh            # Cleans cluster resources
 ├── delete_cluster.sh           # Deletes the entire cluster
