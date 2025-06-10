@@ -31,10 +31,12 @@ jobs:
 
       - name: Clone OpenTelemetry Demo
         run: |
-          git clone https://github.com/open-telemetry/opentelemetry-demo.git
+          git clone --depth 1 https://github.com/open-telemetry/opentelemetry-demo.git
           cd opentelemetry-demo
-          # Using a commit hash that matches the Helm chart version 0.34.2
-          git checkout 8b2b4b166b32433c83e50cd3efccb9ceb2347451
+          # Using the latest stable version
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "Using OpenTelemetry Demo version: $LATEST_TAG"
+          git checkout $LATEST_TAG
 
       - name: Set up QEMU (for multi-arch)
         uses: docker/setup-qemu-action@v3
