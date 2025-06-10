@@ -31,9 +31,9 @@ jobs:
 
       - name: Clone OpenTelemetry Demo
         run: |
-          git clone --depth 1 --branch v1.7.0 https://github.com/open-telemetry/opentelemetry-demo.git
+          git clone --depth 1 --branch 1.12.0 https://github.com/open-telemetry/opentelemetry-demo.git
           cd opentelemetry-demo
-          echo "Using OpenTelemetry Demo version: v1.7.0"
+          echo "Using OpenTelemetry Demo version: 1.12.0"
 
       - name: Set up QEMU (for multi-arch)
         uses: docker/setup-qemu-action@v3
