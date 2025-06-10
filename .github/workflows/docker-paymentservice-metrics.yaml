@@ -51,8 +51,9 @@ jobs:
 
       - name: Copy custom files
         run: |
-          # Copy your custom files from this repo to the cloned opentelemetry-demo
-          cp -r src/payment/* opentelemetry-demo/src/payment/
+          # Copy the payment service files to the cloned opentelemetry-demo
+          mkdir -p opentelemetry-demo/src/payment
+          cp -r payment-service/* opentelemetry-demo/src/payment/
 
       - name: List files (debug)
         run: |
