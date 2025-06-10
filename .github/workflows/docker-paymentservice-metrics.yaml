@@ -13,7 +13,6 @@ name: Build & Push paymentservice (with metrics) Docker image
 on:
   push:
     paths:
-      - 'src/payment/**'
       - '.github/workflows/docker-paymentservice-metrics.yaml'
   workflow_dispatch:
 
@@ -25,8 +24,16 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout this repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone OpenTelemetry Demo
+        run: |
+          git clone https://github.com/open-telemetry/opentelemetry-demo.git
+          cd opentelemetry-demo
+          git checkout v1.10.0  # Use a specific version for consistency
 
       - name: Set up QEMU (for multi-arch)
         uses: docker/setup-qemu-action@v3
@@ -42,27 +49,23 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           ecr: false
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Copy custom files
+        run: |
+          # Copy your custom files from this repo to the cloned opentelemetry-demo
+          cp -r src/payment/* opentelemetry-demo/src/payment/
 
       - name: List files (debug)
         run: |
           ls -la
-          ls -la src/
-          ls -la src/payment/
-
+          ls -la opentelemetry-demo/src/
+          ls -la opentelemetry-demo/src/payment/
 
       - name: Build and push Docker image (multi-arch)
         id: docker_build
         uses: docker/build-push-action@v5
         with:
-          context: src/payment
-          file: src/payment/Dockerfile
+          context: opentelemetry-demo/src/payment
+          file: opentelemetry-demo/src/payment/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.IMAGE_REPO }}:metrics-latest,${{ secrets.IMAGE_REPO }}:${{ github.sha }}
