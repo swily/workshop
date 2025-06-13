@@ -8,7 +8,7 @@ WORKDIR /usr/src/app/
 
 COPY ./src/payment/package*.json ./
 
-RUN apk add --no-cache python3 make g++ && npm ci --omit=dev
+RUN apk add --no-cache python3 make g++ && npm install --omit=dev
 
 # -----------------------------------------------------------------------------
 
