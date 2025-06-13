@@ -60,7 +60,7 @@ jobs:
           cp -r payment-service/* opentelemetry-demo/src/payment/
           
           # Copy the proto file from the cloned repo
-          cp /tmp/otel-demo/pb/demo.proto opentelemetry-demo/pb/
+          cp opentelemetry-demo/pb/demo.proto opentelemetry-demo/pb/
 
       - name: List files (debug)
         run: |
