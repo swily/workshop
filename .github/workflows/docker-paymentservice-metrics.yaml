@@ -65,26 +65,45 @@ jobs:
 
       - name: List files (debug)
         run: |
+          echo "=== Debug: Current directory structure ==="
           echo "--- Root directory ---"
           ls -la
+          echo -e "\n--- opentelemetry-demo/ ---"
+          ls -la opentelemetry-demo/
           echo -e "\n--- opentelemetry-demo/src/ ---"
           ls -la opentelemetry-demo/src/
           echo -e "\n--- opentelemetry-demo/src/payment/ ---"
           ls -la opentelemetry-demo/src/payment/
           echo -e "\n--- opentelemetry-demo/pb/ ---"
           ls -la opentelemetry-demo/pb/
+          
+          echo -e "\n=== Debug: Dockerfile content ==="
+          cat opentelemetry-demo/src/payment/Dockerfile || echo "Failed to read Dockerfile"
+
+      - name: Set file permissions
+        run: |
+          echo "Setting execute permissions on shell scripts..."
+          chmod -R +x opentelemetry-demo/src/payment/*.sh 2>/dev/null || echo "No shell scripts found or already executable"
+
+      - name: Verify Dockerfile content
+        run: |
+          echo "Verifying Dockerfile content..."
+          grep -q "FROM node" opentelemetry-demo/src/payment/Dockerfile || { echo "Error: Dockerfile doesn't appear to be a Node.js Dockerfile"; exit 1; }
+          echo "Dockerfile verification passed"
 
       - name: Build and push Docker image (multi-arch)
         id: docker_build
         uses: docker/build-push-action@v5
         with:
           context: opentelemetry-demo  # Using root as context to include both src and pb directories
-          file: src/payment/Dockerfile
+          file: opentelemetry-demo/src/payment/Dockerfile  # Full path to Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.IMAGE_REPO }}:metrics-latest,${{ secrets.IMAGE_REPO }}:${{ github.sha }}
           build-args: |
             PAYMENT_PORT=8080
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Show image digest
         run: |
