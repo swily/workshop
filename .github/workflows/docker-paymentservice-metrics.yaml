@@ -33,8 +33,9 @@ jobs:
       - name: Clone OpenTelemetry Demo
         run: |
           git clone --depth 1 --branch 1.12.0 https://github.com/open-telemetry/opentelemetry-demo.git
-          cd opentelemetry-demo
           echo "Using OpenTelemetry Demo version: 1.12.0"
+          echo "Verifying required files..."
+          [ -f "opentelemetry-demo/pb/demo.proto" ] || { echo "Error: demo.proto not found"; exit 1; }
 
       - name: Set up QEMU (for multi-arch)
         uses: docker/setup-qemu-action@v3
@@ -50,30 +51,35 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           ecr: false
 
-      - name: Copy custom files
+      - name: Copy and verify payment service files
         run: |
-          # Create necessary directories
-          mkdir -p opentelemetry-demo/src/payment
-          mkdir -p opentelemetry-demo/pb
+          # Verify source files exist
+          [ -f "payment-service/package.json" ] || { echo "Error: payment-service/package.json not found"; exit 1; }
           
-          # Copy the payment service files
+          # Create target directory and copy files
+          mkdir -p opentelemetry-demo/src/payment
           cp -r payment-service/* opentelemetry-demo/src/payment/
           
-          # Copy the proto file from the cloned repo
-          cp opentelemetry-demo/pb/demo.proto opentelemetry-demo/pb/
+          # Verify files were copied
+          [ -f "opentelemetry-demo/src/payment/Dockerfile" ] || { echo "Error: Dockerfile not found after copy"; exit 1; }
 
       - name: List files (debug)
         run: |
+          echo "--- Root directory ---"
           ls -la
+          echo -e "\n--- opentelemetry-demo/src/ ---"
           ls -la opentelemetry-demo/src/
+          echo -e "\n--- opentelemetry-demo/src/payment/ ---"
           ls -la opentelemetry-demo/src/payment/
+          echo -e "\n--- opentelemetry-demo/pb/ ---"
+          ls -la opentelemetry-demo/pb/
 
       - name: Build and push Docker image (multi-arch)
         id: docker_build
         uses: docker/build-push-action@v5
         with:
-          context: opentelemetry-demo/src/payment
-          file: opentelemetry-demo/src/payment/Dockerfile
+          context: opentelemetry-demo  # Using root as context to include both src and pb directories
+          file: src/payment/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ secrets.IMAGE_REPO }}:metrics-latest,${{ secrets.IMAGE_REPO }}:${{ github.sha }}
