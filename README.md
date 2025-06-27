@@ -34,6 +34,25 @@ Before starting, ensure you have the following installed and configured:
 2. `eksctl` installed
 3. `kubectl` installed
 4. A Gremlin account with Team ID and Team Secret
+5. `istioctl` (will be installed automatically if not present)
+
+## Istio Configuration
+
+This workshop uses Istio 1.18.0 for service mesh capabilities. The installation is handled automatically by the setup scripts.
+
+Key Istio components:
+- Istio Control Plane (istiod)
+- Ingress Gateway (LoadBalancer type with AWS NLB)
+- Egress Gateway
+- Kiali for service mesh observability
+- Jaeger for distributed tracing
+
+To modify the Istio version, set the `ISTIO_VERSION` environment variable before running the setup:
+
+```bash
+export ISTIO_VERSION=1.18.0  # Default version
+./build_one.sh
+```
 
 ## Setup
 

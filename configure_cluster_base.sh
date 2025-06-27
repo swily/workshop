@@ -47,7 +47,10 @@ check_requirements() {
 set_defaults() {
   if [ -z "${EXPIRATION}" ]; then
     EXPIRATION=$(date -v +7d +%Y-%m-%d)
-  fi  
+  fi
+  
+  # Set Istio version
+  export ISTIO_VERSION=${ISTIO_VERSION:-1.18.0}
 
   if [ -z "${OWNER}" ]; then
     OWNER="$(whoami)"
@@ -77,26 +80,259 @@ update_kubeconfig() {
   fi
 }
 
+# Function to install Gremlin with certificate-based authentication
+install_gremlin() {
+  echo -e "\n=== Installing Gremlin with certificate-based authentication ==="
+  
+  # Create gremlin namespace if it doesn't exist
+  if ! kubectl get namespace gremlin &>/dev/null; then
+    echo "Creating gremlin namespace..."
+    kubectl create namespace gremlin
+  fi
+  
+  # Add Gremlin Helm repo if not already added
+  ensure_helm_repo "gremlin" "https://helm.gremlin.com"
+  
+  # Install Gremlin using certificate-based authentication
+  echo "Installing Gremlin using certificate-based authentication..."
+  helm upgrade --install gremlin gremlin/gremlin \
+    --namespace gremlin \
+    --set gremlin.teamID=438c58ec-03db-47ac-8c58-ec03db67ac42 \
+    --set gremlin.clusterID=istio-otel-demo-cluster \
+    --set gremlin.certSecret.create=true \
+    --set gremlin.certSecret.teamCertificate="$(cat patches/gremlin-values.yaml | grep -A 10 'teamCertificate:' | tail -n +2 | sed 's/^ *//' | tr -d '\n' | sed 's/-----END CERTIFICATE-----/-----END CERTIFICATE-----\\n/g')" \
+    --set gremlin.certSecret.teamPrivateKey="$(cat patches/gremlin-values.yaml | grep -A 10 'teamPrivateKey:' | tail -n +2 | sed 's/^ *//' | tr -d '\n' | sed 's/-----END PRIVATE KEY-----/-----END PRIVATE KEY-----\\n/g')" \
+    -f patches/gremlin-values.yaml
+  
+  # Apply EnvoyFilter for Istio integration
+  echo "Applying Gremlin EnvoyFilter for Istio integration..."
+  kubectl apply -f patches/gremlin-envoy-filter.yaml
+  
+  echo -e "\n✅ Gremlin installation completed successfully!"
+  echo -e "\nTo verify Gremlin installation, run:"
+  echo "kubectl get pods -n gremlin"
+  echo -e "\nTo access the Gremlin web UI, run:"
+  echo "kubectl port-forward -n gremlin svc/gremlin 8080:80"
+  echo -e "\nThen open http://localhost:8080 in your browser"
+}
+
 # Show help message
 show_help() {
-  echo "Usage: $0 [--install-istio]"
+  echo "Usage: $0 [--install-istio] [--install-gremlin]"
   echo ""
   echo "Options:"
-  echo "  --install-istio  Install Istio as part of the base configuration"
+  echo "  --install-istio     Install Istio as part of the base configuration"
+  echo "  --install-gremlin  Install Gremlin with certificate-based authentication"
   echo ""
   echo "Note: It's recommended to install Istio separately using ./install_istio.sh"
   echo "      for better control over the installation process."
+}
+
+# Function to ensure Helm repo is added
+ensure_helm_repo() {
+  local repo_name=$1
+  local repo_url=$2
+  
+  if ! helm repo list | grep -q "^${repo_name}"; then
+    echo "Adding Helm repository ${repo_name}..."
+    if ! helm repo add ${repo_name} ${repo_url}; then
+      echo "Error: Failed to add Helm repository ${repo_name}"
+      return 1
+    fi
+    helm repo update
+  fi
+}
+
+# Function to install AWS Load Balancer Controller
+install_aws_load_balancer_controller() {
+  echo "=== Installing AWS Load Balancer Controller ==="
+  
+  # Download IAM policy
+  echo "Downloading IAM policy..."
+  curl -s -o iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.7/docs/install/iam_policy.json
+
+  # Create IAM policy if it doesn't exist
+  echo "Creating IAM policy for AWS Load Balancer Controller..."
+  local account_id=$(aws sts get-caller-identity --query Account --output text)
+  local policy_arn="arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy"
+  
+  if ! aws iam get-policy --policy-arn $policy_arn >/dev/null 2>&1; then
+    aws iam create-policy \
+      --policy-name AWSLoadBalancerControllerIAMPolicy \
+      --policy-document file://iam-policy.json
+  else
+    echo "IAM policy already exists, skipping creation"
+  fi
+
+  # Create IAM service account
+  echo "Creating IAM service account for AWS Load Balancer Controller..."
+  eksctl create iamserviceaccount \
+    --cluster=${CLUSTER_NAME} \
+    --namespace=kube-system \
+    --name=aws-load-balancer-controller \
+    --attach-policy-arn=${policy_arn} \
+    --override-existing-serviceaccounts \
+    --approve
+
+  # Add EKS chart repo
+  ensure_helm_repo "eks" "https://aws.github.io/eks-charts"
+
+  # Install AWS Load Balancer Controller
+  echo "Installing AWS Load Balancer Controller..."
+  helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+    --namespace kube-system \
+    --set clusterName=${CLUSTER_NAME} \
+    --set serviceAccount.create=false \
+    --set serviceAccount.name=aws-load-balancer-controller \
+    --set region=${AWS_REGION} \
+    --set vpcId=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
+  echo "✅ AWS Load Balancer Controller installed successfully!"
+}
+
+# Function to check if Istio is already installed
+is_istio_installed() {
+  kubectl get namespaces | grep -q istio-system
+  return $?
+}
+
+# Function to install Istio
+install_istio() {
+  echo "=== Installing Istio ==="
+  
+  # Check if already installed
+  if is_istio_installed; then
+    echo "Istio is already installed. Skipping installation."
+    return 0
+  fi
+
+  # Download Istio
+  echo "Downloading Istio ${ISTIO_VERSION}..."
+  curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
+  export PATH="$PWD/istio-${ISTIO_VERSION}/bin:$PATH"
+
+  # Install Istio operator
+  echo "Installing Istio operator..."
+  istioctl operator init
+
+  # Wait for operator to be ready
+  echo "Waiting for Istio operator to be ready..."
+  kubectl wait --for=condition=ready pod -l name=istio-operator -n istio-operator --timeout=300s
+
+  # Install Istio with demo profile
+  echo "Installing Istio with demo profile..."
+  kubectl create namespace istio-system
+  kubectl apply -f - <<EOF
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  namespace: istio-system
+  name: istio-operator
+spec:
+  profile: demo
+  components:
+    egressGateways:
+    - name: istio-egressgateway
+      enabled: true
+    ingressGateways:
+    - name: istio-ingressgateway
+      enabled: true
+  values:
+    global:
+      proxy:
+        autoInject: enabled
+      useMCP: false
+    gateways:
+      istio-ingressgateway:
+        type: LoadBalancer
+        serviceAnnotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: nlb
+          service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    pilot:
+      autoscaleEnabled: true
+      autoscaleMin: 1
+      autoscaleMax: 3
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+    telemetry:
+      enabled: true
+      v2:
+        enabled: true
+        metadataExchange:
+          wasmEnabled: false
+        prometheus:
+          enabled: true
+          wasmEnabled: false
+        stackdriver:
+          configOverride: {}
+          enabled: false
+          logging: false
+          monitoring: false
+          topology: false
+    meshConfig:
+      enableTracing: true
+      defaultConfig:
+        holdApplicationUntilProxyStarts: true
+        proxyMetadata:
+          ISTIO_META_DNS_CAPTURE: "true"
+          ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+EOF
+
+  # Wait for Istio to be ready
+  echo "Waiting for Istio to be ready..."
+  kubectl wait --for=condition=available deployment/istiod -n istio-system --timeout=300s
+  kubectl wait --for=condition=available deployment/istio-ingressgateway -n istio-system --timeout=300s
+  kubectl wait --for=condition=available deployment/istio-egressgateway -n istio-system --timeout=300s
+
+  echo "✅ Istio installed successfully!"
+}
+
+# Function to tag subnets for AWS Load Balancer Controller
+tag_subnets() {
+  echo "=== Tagging subnets for AWS Load Balancer Controller ==="
+  
+  # Get VPC ID
+  local vpc_id=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+  
+  # Get all subnets
+  local subnets=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${vpc_id}" --query 'Subnets[].SubnetId' --output text)
+  
+  # Tag subnets for internal load balancers
+  echo "Tagging subnets for internal load balancers..."
+  for subnet in $subnets; do
+    aws ec2 create-tags \
+      --resources ${subnet} \
+      --tags "Key=kubernetes.io/role/internal-elb,Value=1"
+  done
+  
+  # Tag subnets for external load balancers
+  echo "Tagging subnets for external load balancers..."
+  for subnet in $subnets; do
+    aws ec2 create-tags \
+      --resources ${subnet} \
+      --tags "Key=kubernetes.io/role/elb,Value=1"
+  done
+  
+  echo "✅ Subnets tagged successfully!"
 }
 
 # Main execution
 main() {
   # Parse command line arguments
   local install_istio_flag=false
+  local install_gremlin_flag=false
   
   while [[ $# -gt 0 ]]; do
     case $1 in
       --install-istio)
         install_istio_flag=true
+        shift
+        ;;
+      --install-gremlin)
+        install_gremlin_flag=true
         shift
         ;;
       --help | -h)
@@ -136,6 +372,9 @@ main() {
   echo -e "\n=== Installing AWS Load Balancer Controller ==="
   install_aws_load_balancer_controller
 
+  # Tag subnets for AWS Load Balancer Controller
+  tag_subnets
+
   # Install Istio if requested
   if [ "$install_istio_flag" = true ]; then
     echo -e "\n=== Installing Istio (as requested) ==="
@@ -146,371 +385,36 @@ main() {
     echo "   or rerun this script with: $0 --install-istio"
   fi
   
+  # Install Gremlin if requested
+  if [ "$install_gremlin_flag" = true ]; then
+    if [ "$install_istio_flag" = false ]; then
+      echo -e "\n⚠️  Warning: Gremlin installation requires Istio. Please install Istio first."
+      echo "You can install Istio by running:"
+      echo "  $0 --install-istio --install-gremlin"
+      echo -e "\nOr install Istio separately and then run with --install-gremlin"
+    else
+      install_gremlin
+    fi
+  fi
+  
   echo -e "\n✅ Base cluster configuration completed successfully!"
+  
+  if [ "$install_gremlin_flag" = false ]; then
+    echo -e "\nℹ️  To install Gremlin with certificate-based authentication, run:"
+    echo "   $0 --install-istio --install-gremlin"
+  fi
   
   if [ "$install_istio_flag" = false ]; then
     echo -e "\nNext steps:"
     echo "1. Install Istio (recommended):"
     echo "   ./install_istio.sh"
     echo ""
-    echo "2. Set your Gremlin credentials as environment variables:"
-    echo "   export TEAM_ID=<your-team-id>"
-    echo "   export TEAM_SECRET=<your-team-secret>"
+    echo "2. Install Gremlin with certificate-based authentication:"
+    echo "   $0 --install-gremlin"
     echo ""
     echo "3. Run the OpenTelemetry demo configuration:"
     echo "   ./configure_otel_demo.sh"
   fi
-}
-
-# Function to ensure Helm repo is added
-ensure_helm_repo() {
-  local repo_name=$1
-  local repo_url=$2
-  
-  if ! helm repo list | grep -q "^${repo_name}"; then
-    echo "Adding Helm repository ${repo_name}..."
-    if ! helm repo add ${repo_name} ${repo_url}; then
-      echo "Error: Failed to add Helm repository ${repo_name}"
-      return 1
-    fi
-    helm repo update
-  fi
-}
-
-# Function to install AWS Load Balancer Controller
-install_aws_load_balancer_controller() {
-  echo "=== Installing AWS Load Balancer Controller ==="
-  
-  # Download IAM policy
-  echo "Downloading IAM policy..."
-  curl -s -o iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.7/docs/install/iam_policy.json
-
-  # Create IAM policy if it doesn't exist
-  echo "Creating IAM policy for AWS Load Balancer Controller..."
-  local account_id=$(aws sts get-caller-identity --query Account --output text)
-  local policy_arn="arn:aws:iam::${account_id}:policy/AWSLoadBalancerControllerIAMPolicy"
-  
-  if ! aws iam get-policy --policy-arn $policy_arn >/dev/null 2>&1; then
-    aws iam create-policy \
-      --policy-name AWSLoadBalancerControllerIAMPolicy \
-      --policy-document file://iam-policy.json
-  else
-    echo "IAM policy already exists, skipping creation"
-  fi
-
-  # Get the OIDC provider URL for the cluster
-  echo -e "\n=== Configuring IAM OIDC provider ==="
-  local oidc_provider=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.identity.oidc.issuer" --output text | sed -e 's/^https:\/\///')
-  echo "OIDC Provider: $oidc_provider"
-
-  # Create IAM role with trust relationship
-  echo -e "\n=== Creating IAM role for AWS Load Balancer Controller ==="
-  local role_name="aws-load-balancer-controller-${CLUSTER_NAME}"
-  local role_arn="arn:aws:iam::${account_id}:role/${role_name}"
-
-  # Create or update IAM role
-  if ! aws iam get-role --role-name $role_name >/dev/null 2>&1; then
-    echo "Creating IAM role: $role_name"
-    aws iam create-role \
-      --role-name $role_name \
-      --assume-role-policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"arn:aws:iam::${account_id}:oidc-provider/${oidc_provider}\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"${oidc_provider}:sub\":\"system:serviceaccount:kube-system:aws-load-balancer-controller\",\"${oidc_provider}:aud\":\"sts.amazonaws.com\"}}}]}"
-    
-    # Attach the policy to the role
-    echo "Attaching policy to IAM role..."
-    aws iam attach-role-policy \
-      --role-name $role_name \
-      --policy-arn $policy_arn
-  else
-    echo "IAM role $role_name already exists, updating trust policy..."
-    aws iam update-assume-role-policy \
-      --role-name $role_name \
-      --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Federated\":\"arn:aws:iam::${account_id}:oidc-provider/${oidc_provider}\"},\"Action\":\"sts:AssumeRoleWithWebIdentity\",\"Condition\":{\"StringEquals\":{\"${oidc_provider}:sub\":\"system:serviceaccount:kube-system:aws-load-balancer-controller\",\"${oidc_provider}:aud\":\"sts.amazonaws.com\"}}}]}"
-  fi
-
-  # Create Kubernetes service account
-  echo -e "\n=== Creating Kubernetes service account for AWS Load Balancer Controller ==="
-  kubectl create serviceaccount -n kube-system aws-load-balancer-controller --dry-run=client -o yaml | kubectl apply -f -
-  kubectl annotate serviceaccount -n kube-system aws-load-balancer-controller \
-    "eks.amazonaws.com/role-arn=${role_arn}" --overwrite
-
-  # Ensure EKS Helm repository is added
-  ensure_helm_repo "eks" "https://aws.github.io/eks-charts"
-
-  # Create values file
-  echo -e "\n=== Creating values file for AWS Load Balancer Controller ==="
-  cat > /tmp/alb-values.yaml <<- EOM
-clusterName: ${CLUSTER_NAME}
-region: ${AWS_REGION}
-
-# Disable webhook to avoid cert-manager dependency
-enableServiceMutatorWebhook: false
-enableServiceMutatorWebhookFailOpen: false
-
-# Service account configuration
-serviceAccount:
-  create: false  # We create it explicitly above
-  name: aws-load-balancer-controller
-  annotations:
-    eks.amazonaws.com/role-arn: ${role_arn}
-
-# Basic security context settings
-securityContext:
-  runAsNonRoot: true
-  runAsUser: 65534
-
-# Resource limits
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 200m
-    memory: 256Mi
-
-# Disable leader election to simplify setup
-leaderElection:
-  enabled: false
-
-# Disable metrics to reduce resource usage
-metrics:
-  enabled: false
-
-# Default target type for services
-targetType: ip
-
-# Default scheme for LoadBalancers
-scheme: internet-facing
-EOM
-
-  # Install or upgrade the controller
-  echo -e "\n=== Installing/Upgrading AWS Load Balancer Controller ==="
-  if ! helm status -n kube-system aws-load-balancer-controller >/dev/null 2>&1; then
-    helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-      -n kube-system \
-      -f /tmp/alb-values.yaml \
-      --wait \
-      --timeout 15m0s \
-      --debug
-  else
-    helm upgrade aws-load-balancer-controller eks/aws-load-balancer-controller \
-      -n kube-system \
-      -f /tmp/alb-values.yaml \
-      --wait \
-      --timeout 15m0s \
-      --debug
-  fi
-
-  # Wait for the controller to be ready
-  echo -e "\nWaiting for AWS Load Balancer Controller to be ready..."
-  if ! kubectl wait --for=condition=available deployment/aws-load-balancer-controller -n kube-system --timeout=300s; then
-    echo -e "\n❌ AWS Load Balancer Controller failed to become available"
-    kubectl logs -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller --tail=100
-    return 1
-  fi
-
-  echo -e "\n✅ AWS Load Balancer Controller is running:"
-  kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-controller
-}
-
-# Function to check if Istio is already installed
-is_istio_installed() {
-  kubectl get namespace istio-system >/dev/null 2>&1
-  return $?
-}
-
-# Function to install Istio
-install_istio() {
-  # Check if Istio is already installed
-  if is_istio_installed; then
-    echo "✅ Istio is already installed. Skipping installation."
-    return 0
-  fi
-  
-  echo -e "\n=== Installing and configuring Istio with monitoring ==="
-  echo -e "\n=== Installing and configuring Istio with monitoring ==="
-  
-  # Download and install specific Istio version (1.18.0) that's compatible with Kubernetes 1.28
-  echo "Downloading Istio 1.18.0..."
-  ISTIO_VERSION=1.18.0
-  ISTIO_ARCH=osx-arm64
-  
-  # Clean up any existing installation
-  rm -rf istio-${ISTIO_VERSION}
-  
-  # Download and extract Istio
-  curl -L https://github.com/istio/istio/releases/download/${ISTIO_VERSION}/istio-${ISTIO_VERSION}-${ISTIO_ARCH}.tar.gz | tar xz
-  export PATH="$(pwd)/istio-${ISTIO_VERSION}/bin:$PATH"
-  
-  # Use the template file for Istio configuration
-  ISTIO_CONFIG_FILE="$(pwd)/templates/istio/istio-operator.yaml"
-  if [ ! -f "$ISTIO_CONFIG_FILE" ]; then
-    echo "❌ Error: Istio configuration template not found at $ISTIO_CONFIG_FILE"
-    return 1
-  fi
-  
-  # Make a copy we can modify if needed
-  cp "$ISTIO_CONFIG_FILE" ./istio-values.yaml
-
-  # Use the template file for Kiali configuration
-  KIALI_CONFIG_FILE="$(pwd)/templates/istio/kiali-values.yaml"
-  if [ ! -f "$KIALI_CONFIG_FILE" ]; then
-    echo "❌ Error: Kiali configuration template not found at $KIALI_CONFIG_FILE"
-    return 1
-  fi
-  
-  # Make a copy we can modify if needed
-  cp "$KIALI_CONFIG_FILE" ./kiali-values.yaml
-
-  # Install Istio with the custom configuration
-  echo "Installing Istio ${ISTIO_VERSION} with monitoring components..."
-  
-  # First, install the base Istio components
-  if ! istioctl install -f istio-values.yaml -y; then
-    echo "❌ Failed to install Istio"
-    return 1
-  fi
-  
-  # Wait for Istiod to be ready before proceeding with addons
-  echo -e "\nWaiting for Istiod to be ready..."
-  if ! kubectl wait --for=condition=ready pod -n istio-system -l app=istiod --timeout=300s; then
-    echo "❌ Istiod failed to become ready"
-    kubectl logs -n istio-system -l app=istiod --tail=100
-    return 1
-  fi
-
-  # Wait for Istio Ingress Gateway to be ready
-  echo -e "\nWaiting for Istio Ingress Gateway to be ready..."
-  if ! kubectl wait --for=condition=ready pod -n istio-system -l app=istio-ingressgateway --timeout=300s; then
-    echo "⚠️  Istio Ingress Gateway is not ready, but continuing..."
-  fi
-
-  # Enable automatic sidecar injection for the default namespace
-  echo -e "\nEnabling automatic sidecar injection for default namespace..."
-  kubectl create namespace istio-demo || true
-  kubectl label namespace istio-demo istio-injection=enabled --overwrite
-  
-  # Install and configure addons in the correct order
-  echo -e "\n=== Installing and configuring addons ==="
-  
-  # Install addons in the correct order
-  echo -e "\n=== Installing Istio Addons ==="
-  
-  # 1. First install Prometheus (required by Kiali and Jaeger)
-  echo -e "\nInstalling Prometheus..."
-  kubectl apply -f istio-${ISTIO_VERSION}/samples/addons/prometheus.yaml
-  
-  # 2. Install Jaeger (tracing)
-  echo -e "\nInstalling Jaeger..."
-  kubectl apply -f istio-${ISTIO_VERSION}/samples/addons/jaeger.yaml
-  
-  # 3. Install Kiali (depends on Prometheus and Jaeger)
-  echo -e "\nInstalling Kiali..."
-  kubectl apply -f istio-${ISTIO_VERSION}/samples/addons/kiali.yaml
-  
-  # Wait for addons to be ready with timeouts
-  echo -e "\nWaiting for addons to be ready..."
-  
-  # Prometheus
-  if ! kubectl wait --for=condition=ready pod -n istio-system -l app=prometheus --timeout=180s; then
-    echo "⚠️  Prometheus is taking longer than expected to start..."
-  fi
-  
-  # Jaeger
-  if ! kubectl wait --for=condition=ready pod -n istio-system -l app=jaeger --timeout=180s; then
-    echo "⚠️  Jaeger is taking longer than expected to start..."
-  fi
-  
-  # Kiali
-  if ! kubectl wait --for=condition=ready pod -n istio-system -l app.kubernetes.io/name=kiali --timeout=180s; then
-    echo "⚠️  Kiali is taking longer than expected to start..."
-  fi
-  
-  # Don't fail the installation if addons take too long
-  echo -e "\n✅ Addons installation completed. Some components may still be initializing."
-  
-  # 4. Create port-forward for Kiali
-  echo -e "\nCreating port-forward for Kiali..."
-  kubectl port-forward svc/kiali -n istio-system 20001:20001 > /dev/null 2>&1 &
-  KIALI_PID=$!
-  
-  # Store the PID in a file for later cleanup
-  echo $KIALI_PID > /tmp/kiali-port-forward.pid
-  
-  # 5. Verify all components are running
-  echo -e "\nVerifying all Istio components are running..."
-  kubectl get pods -n istio-system
-  
-  # 6. Wait for all Istio components to be ready
-  echo -e "\nWaiting for all Istio components to be ready..."
-  if ! kubectl wait --for=condition=ready pod --all -n istio-system --timeout=300s; then
-    echo "❌ Some Istio components failed to become ready"
-    kubectl get pods -n istio-system -o wide
-    return 1
-  fi
-  
-  echo -e "\n✅ Istio installation completed successfully"
-  echo "To access the Kiali dashboard, run: istioctl dashboard kiali"
-  echo "To access Prometheus, run: istioctl dashboard prometheus"
-  echo "To access Jaeger, run: istioctl dashboard jaeger"
-  echo "\nTo access the Kiali UI, run: kubectl port-forward svc/kiali -n istio-system 20001:20001"
-  echo "Then open: http://localhost:20001"
-}
-
-# Function to tag subnets for AWS Load Balancer Controller
-tag_subnets() {
-  echo -e "\n=== Tagging subnets for AWS Load Balancer Controller ==="
-  echo "This ensures the AWS Load Balancer Controller can properly provision load balancers."
-
-  # Get all subnets in the VPC
-  local vpc_id=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
-  local subnets=($(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${vpc_id}" --query "Subnets[].SubnetId" --output text))
-
-  # Split subnets into public and private based on MapPublicIpOnLaunch
-  local public_subnets=()
-  local private_subnets=()
-
-  for subnet in "${subnets[@]}"; do
-    if [ "$(aws ec2 describe-subnets --subnet-ids $subnet --query 'Subnets[0].MapPublicIpOnLaunch' --output text)" = "True" ]; then
-      public_subnets+=($subnet)
-    else
-      private_subnets+=($subnet)
-    fi
-  done
-
-  echo "Found ${#public_subnets[@]} public subnets and ${#private_subnets[@]} private subnets"
-
-  # Tag all subnets with the cluster tag
-  echo -e "\nTagging all subnets with cluster tag..."
-  for subnet in "${subnets[@]}"; do
-    echo "Tagging subnet $subnet with cluster tag"
-    aws ec2 create-tags \
-      --resources $subnet \
-      --tags "Key=kubernetes.io/cluster/${CLUSTER_NAME},Value=shared"
-  done
-
-  # Tag public subnets
-  echo -e "\nTagging public subnets for internet-facing load balancers..."
-  for subnet in "${public_subnets[@]}"; do
-    echo "Tagging public subnet $subnet with elb role"
-    aws ec2 create-tags \
-      --resources $subnet \
-      --tags "Key=kubernetes.io/role/elb,Value=1"
-  done
-
-  # Tag private subnets
-  echo -e "\nTagging private subnets for internal load balancers..."
-  for subnet in "${private_subnets[@]}"; do
-    echo "Tagging private subnet $subnet with internal-elb role"
-    aws ec2 create-tags \
-      --resources $subnet \
-      --tags "Key=kubernetes.io/role/internal-elb,Value=1"
-  done
-
-  echo -e "\n✅ Subnet tagging completed."
-  echo "Public subnets (${#public_subnets[@]}):"
-  printf '  %s\n' "${public_subnets[@]}"
-  echo -e "\nPrivate subnets (${#private_subnets[@]}):"
-  printf '  %s\n' "${private_subnets[@]}"
 }
 
 # Execute the main function if not being sourced
