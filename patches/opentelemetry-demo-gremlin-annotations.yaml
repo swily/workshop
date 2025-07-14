@@ -1,0 +1,36 @@
+components:
+  frontend:
+    service:
+      annotations:
+        gremlin.com/service-id: frontend-service
+
+  frontend-proxy:
+    service:
+      annotations:
+        gremlin.com/service-id: frontend-proxy-service
+
+  # Add other services as needed
+  cart:
+    service:
+      annotations:
+        gremlin.com/service-id: cart-service
+
+  checkout:
+    service:
+      annotations:
+        gremlin.com/service-id: checkout-service
+
+  product-catalog:
+    service:
+      annotations:
+        gremlin.com/service-id: product-catalog-service
+
+  recommendation:
+    service:
+      annotations:
+        gremlin.com/service-id: recommendation-service
+
+  shipping:
+    service:
+      annotations:
+        gremlin.com/service-id: shipping-service

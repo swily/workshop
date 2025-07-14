@@ -1,0 +1,43 @@
+gremlin:
+  secret:
+    managed: true
+    type: certificate
+    teamID: "438c58ec-03db-47ac-8c58-ec03db67ac42"
+    clusterID: "istio-otel-demo-cluster"
+    certificate: |
+      -----BEGIN CERTIFICATE-----
+      MIIB7TCCAZSgAwIBAgIBATAKBggqhkjOPQQDAjBxMSMwIQYDVQQDDBpHcmVtbGlu
+      IENsaWVudCBDZXJ0aWZpY2F0ZTElMCMGA1UECwwcR3JlbWxpbiBTb2x1dGlvbnMg
+      QXJjaGl0ZWN0czEjMCEGA1UECgwaRmlnQ2xvcHNFbnRlcnByaXNlcyAtIFNlYW4w
+      HhcNMjUwMzMxMTgyOTE1WhcNMjYwMzMxMTgyOTE1WjBxMSMwIQYDVQQDDBpHcmVt
+      bGluIENsaWVudCBDZXJ0aWZpY2F0ZTElMCMGA1UECwwcR3JlbWxpbiBTb2x1dGlv
+      bnMgQXJjaGl0ZWN0czEjMCEGA1UECgwaRmlnQ2xvcHNFbnRlcnByaXNlcyAtIFNl
+      YW4wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQTk7S9HRgXCQcTnhLlHeyJG+Jt
+      IoDTnSd92Gz9vVsx5+Zh+Tl6Qni0ct6g84reuEzv9tYNws82onpvdyJd41KAox0w
+      GzAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIHgDAKBggqhkjOPQQDAgNHADBEAiAi
+      iG3gU+gmihrNfIMVsdV41CxhgD0Bca9VP3qUbcKcSQIgIfAoUIYc/UXIVwrifz0m
+      uPUaQ08zctqzMZlFCNsHJ6I=
+      -----END CERTIFICATE-----
+    key: |
+      -----BEGIN EC PRIVATE KEY-----
+      MHcCAQEEIGs2Vo2eIIZXpdgju5lV9FyoHa7b6Wzf4gO1hfwCGkzBoAoGCCqGSM49
+      AwEHoUQDQgAEE5O0vR0YFwkHE54S5R3siRvibSKA050nfdhs/b1bMefmYfk5ekJ4
+      tHLeoPOK3rhM7/bWDcLPNqJ6b3ciXeNSgA==
+      -----END EC PRIVATE KEY-----
+  hostPID: true
+  hostNetwork: true
+  container:
+    driver: any
+  podSecurity:
+    privileged: true
+    allowPrivilegeEscalation: true
+    capabilities:
+      - KILL
+      - NET_ADMIN
+      - SYS_BOOT
+      - SYS_TIME
+      - DAC_READ_SEARCH
+      - SYS_RESOURCE
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - NET_RAW

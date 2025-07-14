@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+  namespace: otel-demo
+spec:
+  template:
+    spec:
+      containers:
+      - name: load-generator
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "1Gi"
+        # Add environment variables to control load if needed
+        env:
+        - name: LOCUST_USERS
+          value: "5"  # Reduced from default 10
+        - name: LOCUST_SPAWN_RATE
+          value: "0.5"  # Slower spawn rate
+---
+# Optional: Add a HorizontalPodAutoscaler if you want auto-scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: load-generator
+  namespace: otel-demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: load-generator
+  minReplicas: 0  # Can scale to 0 when not needed
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70

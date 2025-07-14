@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: gremlin
+  namespace: gremlin
+spec:
+  template:
+    spec:
+      containers:
+      - name: gremlin
+        env:
+        - name: GREMLIN_TEAM_ID
+          value: "438c58ec-03db-47ac-8c58-ec03db67ac42"
+        - name: GREMLIN_TEAM_CERTIFICATE_OR_FILE
+          value: /var/lib/gremlin/cert/GREMLIN_TEAM_CERTIFICATE
+        - name: GREMLIN_TEAM_PRIVATE_KEY_OR_FILE
+          value: /var/lib/gremlin/cert/GREMLIN_TEAM_PRIVATE_KEY
+        volumeMounts:
+        - name: gremlin-cert
+          mountPath: /var/lib/gremlin/cert
+          readOnly: true
+        - name: gremlin-state
+          mountPath: /var/lib/gremlin
+        - name: gremlin-executions
+          mountPath: /var/lib/gremlin/executions
+        - name: gremlin-logs
+          mountPath: /var/log/gremlin
+        - name: cgroup-root
+          mountPath: /sys/fs/cgroup
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+          readOnly: true
+        - name: crio-sock
+          mountPath: /run/crio/crio.sock
+          readOnly: true
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+          readOnly: true
+      volumes:
+      - name: gremlin-cert
+        secret:
+          secretName: gremlin-team-cert
+          items:
+          - key: GREMLIN_TEAM_CERTIFICATE
+            path: GREMLIN_TEAM_CERTIFICATE
+          - key: GREMLIN_TEAM_PRIVATE_KEY
+            path: GREMLIN_TEAM_PRIVATE_KEY
+      - name: cgroup-root
+        hostPath:
+          path: /sys/fs/cgroup
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+      - name: crio-sock
+        hostPath:
+          path: /run/crio/crio.sock
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: gremlin-state
+        emptyDir: {}
+      - name: gremlin-executions
+        hostPath:
+          path: /var/lib/gremlin/executions
+      - name: gremlin-logs
+        hostPath:
+          path: /var/log/gremlin

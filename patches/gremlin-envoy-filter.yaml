@@ -1,0 +1,50 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: gremlin-envoy-filter
+  namespace: istio-system
+spec:
+  workloadSelector:
+    labels:
+      gremlin: enabled
+  configPatches:
+  - applyTo: HTTP_FILTER
+    match:
+      context: SIDECAR_INBOUND
+      listener:
+        filterChain:
+          filter:
+            name: "envoy.filters.network.http_connection_manager"
+    patch:
+      operation: INSERT_BEFORE
+      value:
+        name: envoy.filters.http.gremlin
+        typed_config:
+          "@type": type.googleapis.com/udpa.type.v1.TypedStruct
+          type_url: type.googleapis.com/envoy.extensions.filters.http.gremlin.v3.Gremlin
+          value:
+            config:
+              config_source:
+                api_config_source:
+                  api_type: GRPC
+                  transport_api_version: V3
+                  grpc_services:
+                  - envoy_grpc:
+                      cluster_name: xds_cluster
+  - applyTo: CLUSTER
+    patch:
+      operation: ADD
+      value:
+        name: xds_cluster
+        type: STRICT_DNS
+        connect_timeout: 5s
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: xds_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: gremlin-xds.gremlin.svc.cluster.local
+                    port_value: 50051

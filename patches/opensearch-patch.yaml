@@ -1,0 +1,7 @@
+opensearch:
+  opensearchJavaOpts: "-Xms768m -Xmx768m"
+  resources:
+    limits:
+      memory: 1500Mi
+    requests:
+      memory: 1000Mi
