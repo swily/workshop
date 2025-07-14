@@ -1,0 +1,18 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: load-generator
+        env:
+        - name: LOCUST_HOST
+          value: "http://frontend.otel-demo.svc.cluster.local:8080"
+        - name: LOCUST_HEADLESS
+          value: "true"
+        - name: LOCUST_AUTOSTART
+          value: "true"
+        - name: LOCUST_USERS
+          value: "5"
+        - name: LOCUST_SPAWN_RATE
+          value: "0.5"
+        - name: LOCUST_BROWSER_TRAFFIC_ENABLED
+          value: "false"  # Disable browser traffic for now to reduce noise

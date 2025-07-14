@@ -13,12 +13,12 @@ sleep 2  # Give it a moment to clean up
 
 # Define services to forward (format: namespace:service:port:local_port:description)
 SERVICES="
-  otel-demo:otel-demo-grafana:80:3000:Grafana Dashboard
-  otel-demo:otel-demo-frontend:8080:8080:Frontend Store
-  otel-demo:otel-demo-frontendproxy:8080:8081:Frontend Proxy
-  otel-demo:otel-demo-prometheus-server:9090:9090:Prometheus Server
-  otel-demo:otel-demo-jaeger-query:16686:16686:Jaeger UI
-  otel-demo:otel-demo-opensearch:9200:9200:OpenSearch
+  otel-demo:grafana:80:3000:Grafana Dashboard
+  otel-demo:frontend:8080:8080:Frontend Store
+  otel-demo:frontend-proxy:8080:8081:Frontend Proxy
+  otel-demo:prometheus:9090:9090:Prometheus Server
+  otel-demo:jaeger-query:16686:16686:Jaeger UI
+  otel-demo:opensearch:9200:9200:OpenSearch
 "
 
 echo -e "\n${YELLOW}Setting up port forwards...${NC}"

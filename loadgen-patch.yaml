@@ -1,0 +1,16 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: load-generator
+        env:
+        - name: LOCUST_HOST
+          value: http://k8s-istiosys-istioing-7752ec5b20-b481fd9def7d4be0.elb.us-east-2.amazonaws.com
+        - name: LOCUST_HEADLESS
+          value: "true"
+        - name: LOCUST_AUTOSTART
+          value: "true"
+        - name: LOCUST_USERS
+          value: "5"
+        - name: LOCUST_SPAWN_RATE
+          value: "0.5"
