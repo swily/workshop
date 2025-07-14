@@ -1,0 +1,113 @@
+# Gremlin Helm chart values
+# Using team ID and secret authentication
+
+gremlin:
+  teamID: "438c58ec-03db-47ac-8c58-ec03db67ac42"
+  clusterID: "istio-otel-demo-cluster"
+  
+  # Team secret authentication
+  secret:
+    managed: true
+    type: secret
+    teamID: "438c58ec-03db-47ac-8c58-ec03db67ac42"
+    clusterID: "istio-otel-demo-cluster"
+    teamSecret: "70dd38cd-9f43-4075-9d38-cd9f43307590"
+    
+  # API key for authentication (if needed)
+  # apiKey: "your-api-key-here"
+
+# Enable Istio integration
+istio:
+  enabled: true
+  namespace: istio-system
+
+# Run Gremlin agent in daemonset mode
+disableDetachedAgents: true
+
+# Required host access
+hostPID: true
+hostNetwork: true
+hostIPC: true
+
+dnsPolicy: ClusterFirstWithHostNet
+
+# Required security context for Gremlin agent
+securityContext:
+  privileged: true
+  capabilities:
+    add:
+      - SYS_BOOT
+      - SYS_TIME
+      - SYS_MODULE
+      - KILL
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_RESOURCE
+      - SYS_ADMIN
+      - MKNOD
+      - SYS_CHROOT
+      - AUDIT_WRITE
+      - SETFCAP
+      - SETPCAP
+      - SETGID
+      - SETUID
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - FSETID
+  allowPrivilegeEscalation: true
+  readOnlyRootFilesystem: false
+  runAsUser: 0
+  runAsGroup: 0
+  runAsNonRoot: false
+
+# Resource requests and limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+# Node selector and tolerations for scheduling
+nodeSelector: {}
+tolerations: []
+
+# Affinity rules
+affinity: {}
+
+# Additional environment variables
+env: {}
+
+# Additional volumes and volume mounts
+volumes: []
+volumeMounts: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC configuration
+rbac:
+  create: true
+  pspEnabled: true
+
+# Pod security policy configuration
+podSecurityPolicy:
+  create: true
+  name: gremlin-psp
+
+# Network policy configuration
+networkPolicy:
+  enabled: true
+  allowEgress: true
+  allowIngress: true

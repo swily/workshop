@@ -1,0 +1,7 @@
+Service,Local Port,Description
+otel-demo-grafana,3000,Grafana Dashboard
+otel-demo-frontend,8080,Frontend Store
+otel-demo-frontendproxy,8081,Frontend Proxy
+otel-demo-prometheus-server,9090,Prometheus Server
+otel-demo-jaeger-query,16686,Jaeger UI
+otel-demo-opensearch,9200,OpenSearch

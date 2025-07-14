@@ -1,0 +1,25 @@
+Forwarding from 127.0.0.1:3000 -> 3000
+Forwarding from [::1]:3000 -> 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+E0701 10:04:29.065021   12113 portforward.go:357] "Unhandled Error" err="error creating error stream for port 3000 -> 3000: Timeout occurred"
+Handling connection for 3000
+Handling connection for 3000
+Handling connection for 3000
+error: lost connection to pod

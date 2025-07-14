@@ -14,13 +14,13 @@ fi
 helm repo add gremlin https://helm.gremlin.com
 helm repo update
 
-# Install Gremlin
+# Get the directory of this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+WORKSHOP_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Install Gremlin using the custom values file
 helm upgrade --install gremlin gremlin/gremlin \
   --namespace gremlin \
   --create-namespace \
-  --set gremlin.secret.managed=true \
-  --set gremlin.secret.type=secret \
-  --set gremlin.secret.teamID=$GREMLIN_TEAM_ID \
-  --set gremlin.secret.clusterID=$GREMLIN_TEAM_SECRET \
-  --set gremlin.hostPID=true \
+  -f "$WORKSHOP_DIR/gremlin-values-custom.yaml" \
   --set gremlin.client.tags.cluster=$CLUSTER_NAME

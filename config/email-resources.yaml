@@ -1,0 +1,41 @@
+# Email service resource configuration template
+# This file contains recommended resource requests and limits for the email service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email
+  namespace: otel-demo
+spec:
+  template:
+    spec:
+      containers:
+      - name: email
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+# Patch to add resource configuration to the email service
+# This can be applied using:
+# kubectl patch deployment email -n otel-demo --patch-file email-resources.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: email
+  namespace: otel-demo
+spec:
+  template:
+    spec:
+      containers:
+      - name: email
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"

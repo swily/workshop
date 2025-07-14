@@ -1,0 +1,21 @@
+Forwarding from 127.0.0.1:8081 -> 8080
+Forwarding from [::1]:8081 -> 8080
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+Handling connection for 8081
+E0630 12:20:07.439921    7453 portforward.go:357] "Unhandled Error" err="error creating error stream for port 8081 -> 8080: Timeout occurred"
+Handling connection for 8081
+E0630 12:20:38.435196    7453 portforward.go:357] "Unhandled Error" err="error creating error stream for port 8081 -> 8080: Timeout occurred"
+Handling connection for 8081
+E0630 12:20:41.125484    7453 portforward.go:391] "Unhandled Error" err="error copying from remote stream to local connection: readfrom tcp6 [::1]:8081->[::1]:62657: write tcp6 [::1]:8081->[::1]:62657: write: broken pipe"
+E0630 12:20:41.282644    7453 portforward.go:424] "Unhandled Error" err="an error occurred forwarding 8081 -> 8080: error forwarding port 8080 to pod 2bd95d2c2d319f7f7c28529ecb9d377cabab755b805062946236c9087a535ec1, uid : failed to find sandbox \"2bd95d2c2d319f7f7c28529ecb9d377cabab755b805062946236c9087a535ec1\" in store: not found"
+error: lost connection to pod

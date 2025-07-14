@@ -38,8 +38,6 @@ echo -n "Grafana URL: http://"
 kubectl get svc -n monitoring prometheus-operator-grafana -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 echo ""
 
-
-
 echo ""
 echo "=== DNS Setup (Optional) ==="
 echo "To set up friendly DNS names in gremlinpoc.com domain:"

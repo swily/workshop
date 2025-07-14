@@ -1,28 +1,20 @@
 # Copyright The OpenTelemetry Authors
 # SPDX-License-Identifier: Apache-2.0
 
-# extra settings to be merged into OpenTelemetry Collector configuration
-# do not delete this file
-
-## Example configuration for sending data to your own OTLP HTTP backend
-## Note: the spanmetrics exporter must be included in the exporters array
-## if overriding the traces pipeline.
-##
-#  exporters:
-#    otlphttp/example:
-#      endpoint: <your-endpoint-url>
-#
-#  service:
-#    pipelines:
-#      traces:
-#        exporters: [spanmetrics, otlphttp/example]
-
+# Updated OpenTelemetry Collector configuration with spanmetrics and proper Prometheus exporter
 opentelemetry-collector:
   config:
     exporters:
       debug: {}
       prometheus:
         endpoint: "0.0.0.0:8889"
+        namespace: opentelemetry
+        resource_to_telemetry_conversion:
+          enabled: true
+      otlp/jaeger:
+        endpoint: "otel-demo-jaeger-collector:4317"
+        tls:
+          insecure: true
       opensearch:
         http:
           endpoint: http://otel-demo-opensearch:9200
@@ -55,36 +47,39 @@ opentelemetry-collector:
             key: service.instance.id
 
     connectors:
-      spanmetrics: {}
+      spanmetrics:
+        dimensions: []
+        dimensions_cache_size: 1000
+        aggregation_temporality: CUMULATIVE
+        metrics_flush_interval: 15s
+        namespace: ""
+        exclude_patterns: []
+        metrics_expiration: 5m
+        metrics_flush_interval: 15s
+        unit_seconds: ms
+        resource_metrics: true
+
+    extensions:
+      health_check: {}
+      pprof: {}
+      zpages: {}
 
     service:
       telemetry:
         metrics:
-          address: ${env:MY_POD_IP}:8888
+          level: detailed
+          address: 0.0.0.0:8888
+      extensions: [health_check, pprof, zpages]
       pipelines:
         traces:
           receivers: [otlp]
-          processors: [memory_limiter, k8sattributes, resource, batch]
-          exporters: [debug, spanmetrics]
+          processors: [k8sattributes, batch]
+          exporters: [otlp/jaeger, spanmetrics]
         metrics:
           receivers: [otlp, spanmetrics]
-          processors: [memory_limiter, k8sattributes, resource, batch]
+          processors: [batch]
           exporters: [prometheus, debug]
         logs:
           receivers: [otlp]
-          processors: [memory_limiter, k8sattributes, resource, batch]
+          processors: [batch]
           exporters: [opensearch, debug]
-
-components:
-  frontendProxy:
-    service:
-      type: LoadBalancer
-
-prometheus:
-  server:
-    resources:
-      limits:
-        memory: 1Gi
-      requests:
-        memory: 512Mi
----
