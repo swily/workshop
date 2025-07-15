@@ -13,7 +13,9 @@ sleep 2  # Give it a moment to clean up
 
 # Define services to forward (format: namespace:service:port:local_port:description)
 SERVICES="
-  otel-demo:grafana:80:3000:Grafana Dashboard
+  otel-demo:grafana:80:3000:Grafana Dashboard (otel-demo)
+  monitoring:prometheus-grafana:80:3001:Grafana Dashboard (monitoring)
+  otel-demo:load-generator:8089:8089:Load Generator
   otel-demo:frontend:8080:8080:Frontend Store
   otel-demo:frontend-proxy:8080:8081:Frontend Proxy
   otel-demo:prometheus:9090:9090:Prometheus Server
