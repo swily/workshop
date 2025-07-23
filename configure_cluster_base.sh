@@ -211,75 +211,32 @@ install_istio() {
   curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
   export PATH="$PWD/istio-${ISTIO_VERSION}/bin:$PATH"
 
-  # Install Istio operator
-  echo "Installing Istio operator..."
-  istioctl operator init
-
-  # Wait for operator to be ready
-  echo "Waiting for Istio operator to be ready..."
-  kubectl wait --for=condition=ready pod -l name=istio-operator -n istio-operator --timeout=300s
-
   # Install Istio with demo profile
   echo "Installing Istio with demo profile..."
   kubectl create namespace istio-system
-  kubectl apply -f - <<EOF
-apiVersion: install.istio.io/v1alpha1
-kind: IstioOperator
-metadata:
-  namespace: istio-system
-  name: istio-operator
-spec:
-  profile: demo
-  components:
-    egressGateways:
-    - name: istio-egressgateway
-      enabled: true
-    ingressGateways:
-    - name: istio-ingressgateway
-      enabled: true
-  values:
-    global:
-      proxy:
-        autoInject: enabled
-      useMCP: false
-    gateways:
-      istio-ingressgateway:
-        type: LoadBalancer
-        serviceAnnotations:
-          service.beta.kubernetes.io/aws-load-balancer-type: nlb
-          service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    pilot:
-      autoscaleEnabled: true
-      autoscaleMin: 1
-      autoscaleMax: 3
-      resources:
-        requests:
-          cpu: 100m
-          memory: 128Mi
-    telemetry:
-      enabled: true
-      v2:
-        enabled: true
-        metadataExchange:
-          wasmEnabled: false
-        prometheus:
-          enabled: true
-          wasmEnabled: false
-        stackdriver:
-          configOverride: {}
-          enabled: false
-          logging: false
-          monitoring: false
-          topology: false
-    meshConfig:
-      enableTracing: true
-      defaultConfig:
-        holdApplicationUntilProxyStarts: true
-        proxyMetadata:
-          ISTIO_META_DNS_CAPTURE: "true"
-          ISTIO_META_DNS_AUTO_ALLOCATE: "true"
-EOF
+  
+  # Install Istio using the demo profile with customizations
+  istioctl install --set profile=demo -y \
+    --set values.gateways.istio-ingressgateway.type=LoadBalancer \
+    --set values.gateways.istio-ingressgateway.serviceAnnotations.service\.beta\.kubernetes\.io/aws-load-balancer-type=nlb \
+    --set values.gateways.istio-ingressgateway.serviceAnnotations.service\.beta\.kubernetes\.io/aws-load-balancer-scheme=internet-facing \
+    --set values.gateways.istio-ingressgateway.serviceAnnotations.service\.beta\.kubernetes\.io/aws-load-balancer-cross-zone-load-balancing-enabled=true \
+    --set values.global.proxy.autoInject=enabled \
+    --set values.pilot.autoscaleEnabled=true \
+    --set values.pilot.autoscaleMin=1 \
+    --set values.pilot.autoscaleMax=3 \
+    --set values.pilot.resources.requests.cpu=100m \
+    --set values.pilot.resources.requests.memory=128Mi \
+    --set values.telemetry.enabled=true \
+    --set values.telemetry.v2.enabled=true \
+    --set values.telemetry.v2.metadataExchange.wasmEnabled=false \
+    --set values.telemetry.v2.prometheus.enabled=true \
+    --set values.telemetry.v2.prometheus.wasmEnabled=false \
+    --set values.telemetry.v2.stackdriver.enabled=false \
+    --set values.meshConfig.enableTracing=true \
+    --set values.meshConfig.defaultConfig.holdApplicationUntilProxyStarts=true \
+    --set values.meshConfig.defaultConfig.proxyMetadata.ISTIO_META_DNS_CAPTURE="true" \
+    --set values.meshConfig.defaultConfig.proxyMetadata.ISTIO_META_DNS_AUTO_ALLOCATE="true"
 
   # Wait for Istio to be ready
   echo "Waiting for Istio to be ready..."

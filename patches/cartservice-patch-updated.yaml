@@ -2,7 +2,8 @@ spec:
   template:
     spec:
       containers:
-      - name: cartservice
+      - name: cart
+        image: ghcr.io/open-telemetry/demo:2.0.2-cart  # Added the required image field
         ports:
         - containerPort: 8080
           name: http
