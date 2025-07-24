@@ -1,0 +1,59 @@
+gremlin:
+  hostPID: true
+  hostNetwork: true
+  container:
+    driver: containerd-linux
+  secret:
+    create: true
+    managed: true
+    type: secret
+    name: gremlin-secret
+    teamID: 7a5d7d09-c3de-4d6b-9d7d-09c3de7d6b5d
+    clusterID: gremlin-workshop
+    teamSecret: f627ca78-c489-4d72-a7ca-78c4894d72b5
+    existingSecret: ""
+  teamID: 7a5d7d09-c3de-4d6b-9d7d-09c3de7d6b5d
+  clusterID: gremlin-workshop
+  serviceAccount:
+    create: false
+    name: gremlin
+  podSecurityContext:
+    runAsUser: 0
+    runAsGroup: 0
+  securityContext:
+    privileged: true
+    capabilities:
+      add: [KILL, SYS_BOOT, SYS_TIME, NET_ADMIN, NET_RAW, SYS_PTRACE, SYS_CHROOT, MKNOD, AUDIT_WRITE, SETFCAP]
+  nodeSelector:
+    role: worker
+  tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+  collect:
+    processes: true
+    containerLabels: true
+    kubernetes: true
+    network: true
+    filesystem: true
+    kubernetesPods: true
+    kubernetesNodes: true
+    kubernetesServices: true
+    kubernetesDeployments: true
+    kubernetesDaemonsets: true
+    kubernetesStatefulsets: true
+    kubernetesReplicasets: true
+    kubernetesJobs: true
+    kubernetesCronjobs: true
+    kubernetesNamespaces: true
+    kubernetesIngresses: true
+    kubernetesConfigmaps: true
+    kubernetesSecrets: true
+    kubernetesServiceaccounts: true
+    kubernetesRoles: true
+    kubernetesRolebindings: true
+    kubernetesClusterroles: true
+    kubernetesClusterrolebindings: true
+    kubernetesStorageclasses: true
+    kubernetesPersistentvolumes: true
+    kubernetesPersistentvolumeclaims: true
