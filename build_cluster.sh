@@ -17,4 +17,9 @@ if [ -z "${CLUSTER_NAME}" ]; then
 fi
 
 eksctl get clusters | grep ${CLUSTER_NAME} && echo "Cluster ${CLUSTER_NAME} already exists" && exit 0
-eksctl create cluster -f <(cat ./templates/eksctl-custom.yaml | sed -e "s/{{.CLUSTER_NAME}}/${CLUSTER_NAME}/g" -e "s/{{.OWNER}}/${OWNER}/g" -e "s/{{.EXPIRATION}}/${EXPIRATION}/g")
+
+# Use the correct template path with both private and public subnets
+eksctl create cluster -f <(cat ./config/eksctl-custom.yaml | \
+  sed -e "s/{{.CLUSTER_NAME}}/${CLUSTER_NAME}/g" \
+      -e "s/{{.OWNER}}/${OWNER}/g" \
+      -e "s/{{.EXPIRATION}}/${EXPIRATION}/g")

@@ -2,7 +2,7 @@
 
 export AWS_DEFAULT_REGION=us-east-2
 export AWS_REGION=us-east-2
-export CLUSTER_NAME=seanwiley-otel-new
+export CLUSTER_NAME=current-workshop
 export OWNER=$(whoami)
 export EXPIRATION=$(date -v +7d +%Y-%m-%d)
 
@@ -43,7 +43,7 @@ managedNodeGroups:
       - subnet-0fe7be30ec2528c4c
       - subnet-08038efe886c31791
       - subnet-0135b61262e48f4d6
-    ami: AL2023_x86_64_STANDARD
+    amiFamily: AmazonLinux2023
 
 vpc:
   id: vpc-0ae237bb717910ccc
@@ -76,8 +76,8 @@ iam:
     - metadata:
         name: aws-node
         namespace: kube-system
-      wellKnownPolicies:
-        awsVpcCni: true
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
 
 # Create user accounts in new EKS cluster
 iamIdentityMappings:
