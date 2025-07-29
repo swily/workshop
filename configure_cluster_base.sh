@@ -19,6 +19,21 @@ fi
 # Update kubeconfig
 eksctl utils write-kubeconfig --cluster ${CLUSTER_NAME}
 
+# Tag public subnets for LoadBalancer creation
+echo "Tagging public subnets for LoadBalancer creation..."
+
+# Get VPC ID from the cluster
+VPC_ID=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+
+# Find public subnets in the VPC
+PUBLIC_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" "Name=map-public-ip-on-launch,Values=true" --query "Subnets[*].SubnetId" --output text)
+
+# Tag each public subnet
+for subnet in $PUBLIC_SUBNETS; do
+  echo "Tagging subnet $subnet for cluster ${CLUSTER_NAME}"
+  aws ec2 create-tags --resources $subnet --tags Key=kubernetes.io/cluster/${CLUSTER_NAME},Value=shared
+done
+
 # Install Prometheus Operator
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update

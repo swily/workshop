@@ -21,6 +21,7 @@ helm upgrade --install gremlin gremlin/gremlin \
   --set gremlin.secret.managed=true \
   --set gremlin.secret.type=secret \
   --set gremlin.secret.teamID=$GREMLIN_TEAM_ID \
-  --set gremlin.secret.clusterID=$GREMLIN_TEAM_SECRET \
+  --set gremlin.secret.teamSecret=$GREMLIN_TEAM_SECRET \
+  --set gremlin.secret.clusterID=$CLUSTER_NAME \
   --set gremlin.hostPID=true \
   --set gremlin.client.tags.cluster=$CLUSTER_NAME

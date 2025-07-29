@@ -29,12 +29,35 @@ for service in $SERVICES; do
     kubectl rollout status deployment -n otel-demo $service --timeout=300s
 done
 
+# Function to convert deployment name to desired service name format
+get_service_name() {
+  local deployment=$1
+  
+  # Remove the otel-demo- prefix
+  local service_name=${deployment#otel-demo-}
+  
+  # Convert camelCase to snake_case
+  service_name=$(echo $service_name | sed 's/\([a-z0-9]\)\([A-Z]\)/\1_\L\2/g')
+  
+  # Add _service suffix if it doesn't already end with 'service'
+  if [[ ! $service_name =~ .*service$ ]]; then
+    service_name="${service_name}_service"
+  fi
+  
+  echo $service_name
+}
+
 # Annotate and scale deployments
 for deployment in $(kubectl get deployment -n otel-demo -o jsonpath='{.items[*].metadata.name}'); do
   if [ -z "$(echo $SERVICES | grep ${deployment})" ]; then
     continue
   fi
-  kubectl annotate deployment $deployment -n otel-demo "gremlin.com/service-id=${CLUSTER_NAME}-${deployment}" --overwrite
+  
+  # Get the desired service name
+  service_name=$(get_service_name $deployment)
+  
+  echo "Annotating $deployment with service name: $service_name"
+  kubectl annotate deployment $deployment -n otel-demo "gremlin.com/service-id=$service_name" --overwrite
   kubectl scale deployment $deployment -n otel-demo --replicas=2
 done
 
