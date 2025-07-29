@@ -1,0 +1,778 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-demo-collector-config
+  namespace: otel-demo
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 400
+        spike_limit_mib: 100
+      k8sattributes:
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.cronjob.name
+            - k8s.job.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.node.name
+      resource:
+        attributes:
+          - action: insert
+            from_attribute: k8s.pod.uid
+            key: service.instance.id
+      transform:
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(attributes["collector"], "otel-collector")
+              - set(attributes["service.name"], resource.attributes["service.name"])
+
+    exporters:
+      debug:
+        verbosity: detailed
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true
+        enable_open_metrics: true
+      opensearch:
+        http:
+          endpoint: http://otel-demo-opensearch:9200
+          tls:
+            insecure: true
+        logs_index: otel
+      otlp:
+        endpoint: otel-demo-otelcol:4317
+        tls:
+          insecure: true
+
+    connectors:
+      spanmetrics:
+        namespace: spanmetrics
+        histogram:
+          explicit:
+            buckets: [100us, 1ms, 2ms, 6ms, 10ms, 100ms, 250ms, 500ms, 1000ms, 1400ms, 2000ms, 5s, 10s, 20s, 30s, 60s]
+        dimensions:
+          - name: service.name
+            default: unknown_service
+          - name: span.name
+            default: unknown_span
+          - name: span.kind
+            default: unknown_span_kind
+          - name: status.code
+            default: 0
+          - name: http.method
+            default: unknown_http_method
+          - name: http.status_code
+            default: 0
+        dimensions_cache_size: 1000
+        aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
+        metrics_flush_interval: 15s
+
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+      pprof:
+        endpoint: 0.0.0.0:1777
+      zpages:
+        endpoint: 0.0.0.0:55679
+
+    service:
+      telemetry:
+        metrics:
+          address: 0.0.0.0:8888
+      extensions: [health_check, pprof, zpages]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [debug, spanmetrics]
+        metrics:
+          receivers: [otlp, spanmetrics]
+          processors: [memory_limiter, k8sattributes, resource, transform, batch]
+          exporters: [prometheus, debug]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, resource, batch]
+          exporters: [opensearch, debug]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-demo-grafana-dashboards-enhanced
+  namespace: otel-demo
+  labels:
+    grafana_dashboard: "1"
+data:
+  spanmetrics-dashboard.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": 1,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "webstore-metrics"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "id": 1,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "webstore-metrics"
+              },
+              "editorMode": "builder",
+              "expr": "spanmetrics_latency_count",
+              "instant": false,
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Span Count",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "webstore-metrics"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "id": 2,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "webstore-metrics"
+              },
+              "editorMode": "builder",
+              "expr": "histogram_quantile(0.95, sum(rate(spanmetrics_latency_bucket[5m])) by (le, service_name, span_name))",
+              "instant": false,
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "p95 Latency",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "5s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": [],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-15m",
+        "to": "now"
+      },
+      "timepicker": {},
+      "timezone": "",
+      "title": "Spanmetrics Demo Dashboard",
+      "uid": "spanmetrics",
+      "version": 1,
+      "weekStart": ""
+    }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apply-otel-collector-config
+  namespace: otel-demo
+spec:
+  template:
+    spec:
+      serviceAccountName: default
+      containers:
+      - name: kubectl
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Apply the enhanced collector config
+          kubectl replace --force -f /config/collector-config.yaml
+          
+          # Restart the collector to apply the new config
+          kubectl rollout restart deployment/otel-demo-otelcol -n otel-demo
+          
+          # Wait for the collector to be ready
+          kubectl rollout status deployment/otel-demo-otelcol -n otel-demo --timeout=120s
+          
+          # Apply the enhanced Grafana dashboards
+          kubectl replace --force -f /config/grafana-dashboards.yaml
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config
+      restartPolicy: OnFailure
+      volumes:
+      - name: config-volume
+        configMap:
+          name: otel-demo-collector-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-demo-collector-config
+  namespace: otel-demo
+  labels:
+    app: otel-demo
+data:
+  collector-config.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: otel-demo-otelcol-config
+      namespace: otel-demo
+    data:
+      collector.yaml: |
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+              http:
+                endpoint: 0.0.0.0:4318
+
+        processors:
+          batch:
+            send_batch_size: 10000
+            timeout: 10s
+          memory_limiter:
+            check_interval: 1s
+            limit_mib: 400
+            spike_limit_mib: 100
+          k8sattributes:
+            extract:
+              metadata:
+                - k8s.namespace.name
+                - k8s.deployment.name
+                - k8s.statefulset.name
+                - k8s.daemonset.name
+                - k8s.cronjob.name
+                - k8s.job.name
+                - k8s.pod.name
+                - k8s.pod.uid
+                - k8s.node.name
+          resource:
+            attributes:
+              - action: insert
+                from_attribute: k8s.pod.uid
+                key: service.instance.id
+          transform:
+            metric_statements:
+              - context: datapoint
+                statements:
+                  - set(attributes["collector"], "otel-collector")
+                  - set(attributes["service.name"], resource.attributes["service.name"])
+
+        exporters:
+          debug:
+            verbosity: detailed
+          prometheus:
+            endpoint: 0.0.0.0:8889
+            resource_to_telemetry_conversion:
+              enabled: true
+            enable_open_metrics: true
+          opensearch:
+            http:
+              endpoint: http://otel-demo-opensearch:9200
+              tls:
+                insecure: true
+            logs_index: otel
+          otlp:
+            endpoint: otel-demo-otelcol:4317
+            tls:
+              insecure: true
+
+        connectors:
+          spanmetrics:
+            namespace: spanmetrics
+            histogram:
+              explicit:
+                buckets: [100us, 1ms, 2ms, 6ms, 10ms, 100ms, 250ms, 500ms, 1000ms, 1400ms, 2000ms, 5s, 10s, 20s, 30s, 60s]
+            dimensions:
+              - name: service.name
+                default: unknown_service
+              - name: span.name
+                default: unknown_span
+              - name: span.kind
+                default: unknown_span_kind
+              - name: status.code
+                default: 0
+              - name: http.method
+                default: unknown_http_method
+              - name: http.status_code
+                default: 0
+            dimensions_cache_size: 1000
+            aggregation_temporality: AGGREGATION_TEMPORALITY_CUMULATIVE
+            metrics_flush_interval: 15s
+
+        extensions:
+          health_check:
+            endpoint: 0.0.0.0:13133
+          pprof:
+            endpoint: 0.0.0.0:1777
+          zpages:
+            endpoint: 0.0.0.0:55679
+
+        service:
+          telemetry:
+            metrics:
+              address: 0.0.0.0:8888
+          extensions: [health_check, pprof, zpages]
+          pipelines:
+            traces:
+              receivers: [otlp]
+              processors: [memory_limiter, k8sattributes, resource, batch]
+              exporters: [debug, spanmetrics]
+            metrics:
+              receivers: [otlp, spanmetrics]
+              processors: [memory_limiter, k8sattributes, resource, transform, batch]
+              exporters: [prometheus, debug]
+            logs:
+              receivers: [otlp]
+              processors: [memory_limiter, k8sattributes, resource, batch]
+              exporters: [opensearch, debug]
+  grafana-dashboards.yaml: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: otel-demo-grafana-dashboards-enhanced
+      namespace: otel-demo
+      labels:
+        grafana_dashboard: "1"
+    data:
+      spanmetrics-dashboard.json: |
+        {
+          "annotations": {
+            "list": [
+              {
+                "builtIn": 1,
+                "datasource": {
+                  "type": "grafana",
+                  "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+              }
+            ]
+          },
+          "editable": true,
+          "fiscalYearStartMonth": 0,
+          "graphTooltip": 0,
+          "id": 1,
+          "links": [],
+          "liveNow": false,
+          "panels": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "webstore-metrics"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  }
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+              },
+              "id": 1,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "webstore-metrics"
+                  },
+                  "editorMode": "builder",
+                  "expr": "spanmetrics_latency_count",
+                  "instant": false,
+                  "range": true,
+                  "refId": "A"
+                }
+              ],
+              "title": "Span Count",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "webstore-metrics"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "s"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+              },
+              "id": 2,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "datasource": {
+                    "type": "prometheus",
+                    "uid": "webstore-metrics"
+                  },
+                  "editorMode": "builder",
+                  "expr": "histogram_quantile(0.95, sum(rate(spanmetrics_latency_bucket[5m])) by (le, service_name, span_name))",
+                  "instant": false,
+                  "range": true,
+                  "refId": "A"
+                }
+              ],
+              "title": "p95 Latency",
+              "type": "timeseries"
+            }
+          ],
+          "refresh": "5s",
+          "schemaVersion": 38,
+          "style": "dark",
+          "tags": [],
+          "templating": {
+            "list": []
+          },
+          "time": {
+            "from": "now-15m",
+            "to": "now"
+          },
+          "timepicker": {},
+          "timezone": "",
+          "title": "Spanmetrics Demo Dashboard",
+          "uid": "spanmetrics",
+          "version": 1,
+          "weekStart": ""
+        }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-demo-grafana-fix-script
+  namespace: otel-demo
+data:
+  apply-fix.sh: |
+    #!/bin/bash
+    
+    echo "Applying OpenTelemetry Collector enhanced configuration..."
+    kubectl apply -f /Users/seanwiley/workshop/templates/otel_demo_grafana_fix.yaml
+    
+    echo "Waiting for configuration to be applied..."
+    sleep 10
+    
+    echo "Restarting OpenTelemetry Collector to apply new configuration..."
+    kubectl rollout restart deployment/otel-demo-otelcol -n otel-demo
+    
+    echo "Waiting for OpenTelemetry Collector to be ready..."
+    kubectl rollout status deployment/otel-demo-otelcol -n otel-demo --timeout=120s
+    
+    echo "✅ OpenTelemetry Grafana dashboards fix has been applied!"
+    echo "Please wait a few minutes for metrics to be collected and then refresh the Grafana dashboards."
+    echo
+    echo "You can access the OpenTelemetry Demo Grafana at: http://localhost:3001"
