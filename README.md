@@ -1,115 +1,88 @@
 # Workshop
 
-## Grafana Instances
+## Repository Structure
 
-This setup includes two Grafana instances with different purposes:
+This repository has been reorganized with a unified monitoring framework:
 
-1. **OpenTelemetry Demo Grafana** (port 3001)
-   - Access: http://localhost:3001/grafana
-   - Default credentials: admin/otel
-   - Purpose: Contains OpenTelemetry-specific dashboards including:
-     - Demo Dashboard
-     - Service Graph
-     - Service Performance
-     - Span Metrics
-   - Best for: Viewing application-level metrics and traces from the OpenTelemetry demo
+### build_scripts/
+Contains the main scripts for creating and configuring an EKS cluster with OpenTelemetry Demo:
+- `cluster/create.sh` - Creates a new EKS cluster with proper VPC CNI and security group configuration
+- `cluster/base_setup.sh` - Configures the base components of the cluster and calls the unified monitoring setup
+- `demo/otel_demo.sh` - Configures the OpenTelemetry Demo application
+- `gremlin/install.sh` - Interactive Gremlin installation with prompts for teamID, clusterID, and service tagging
+- `load-balancer/install.sh` - Installs and configures load balancers for services
 
-2. **Monitoring Grafana** (port 3000)
-   - Access: http://localhost:3000
-   - Default credentials: admin/prom-operator
-   - Purpose: Contains comprehensive Kubernetes and system monitoring dashboards including:
-     - Kubernetes / Compute Resources / Cluster
-     - Kubernetes / Compute Resources / Namespace (Pods)
-     - Kubernetes / Compute Resources / Node (Pods)
-     - Node Exporter / USE Method / Node
-   - Best for: Monitoring infrastructure metrics, node resources, and cluster health
+### monitoring/
+Contains the unified monitoring framework scripts:
+- `setup_monitoring.sh` - Master monitoring setup script that orchestrates the installation of monitoring tools
+- `prometheus/install/install.sh` - Installs kube-prometheus-stack as the baseline monitoring
+- `dynatrace/install/install.sh` - Installs and configures Dynatrace monitoring
+- `newrelic/install/install.sh` - Installs and configures New Relic monitoring
+- `datadog/install/install.sh` - Installs and configures DataDog monitoring
 
-### For Gremlin Experiments
-For tracking Gremlin latency or network experiments, the **Monitoring Grafana (port 3000)** is the better choice as it provides:
-- Detailed node and pod resource metrics
-- Network traffic monitoring
-- System-level performance metrics
-- Kubernetes-specific metrics that are essential for infrastructure chaos engineering
+### helper_scripts/
+Contains utility scripts that support the main build scripts:
+- `configure_otel_demo_observability.sh` - Configures OpenTelemetry Demo with observability tools
+- `cleanup/` - Scripts for cleaning up cluster resources
+- `templates/` - YAML templates for configurations
 
-## Repository Structure and Scripts
+### dynatrace_exports/
+Contains scripts for Dynatrace entity mapping and exports:
+- `generate_entity_mapping.sh` - Creates entity mapping between service names and Dynatrace entity IDs
 
-### Main Deployment Scripts
+## Usage
 
-1. **`build_one.sh`** - Main orchestration script that automates the entire deployment:
-   - Creates the EKS cluster using `build_cluster.sh`
-   - Waits for cluster stabilization
-   - Configures base components using `configure_cluster_base.sh`
-   - Deploys the OpenTelemetry demo using `configure_otel_demo.sh`
-   - Outputs access URLs and DNS setup instructions
-   ```bash
-   ./build_one.sh
-   ```
+### Creating and Configuring a Cluster
 
-2. **`build_cluster.sh`** - Creates the EKS cluster using eksctl
-   ```bash
-   ./build_cluster.sh
-   ```
+```bash
+# Step 1: Create a new EKS cluster
+cd build_scripts/cluster
+./create.sh -n my-cluster-name
 
-3. **`configure_cluster_base.sh`** - Sets up base cluster components:
-   - AWS Load Balancer Controller
-   - IAM roles and policies
-   - Subnet tagging
-   - Istio service mesh
-   ```bash
-   ./configure_cluster_base.sh
-   ```
+# Step 2: Configure the base components and monitoring
+./base_setup.sh -n my-cluster-name
+# This will automatically install baseline monitoring via the unified monitoring framework
 
-4. **`configure_otel_demo.sh`** - Deploys the OpenTelemetry demo and monitoring stack:
-   - Prometheus Operator
-   - OpenTelemetry Collector
-   - Grafana dashboards
-   - Service Monitors
-   - Gremlin integration
-   ```bash
-   ./configure_otel_demo.sh
-   ```
-
-### Utility Scripts
-
-- **`clean_cluster.sh`** - Cleans up cluster resources while preserving the cluster
-  ```bash
-  ./clean_cluster.sh
-  ```
-
-- **`delete_cluster.sh`** - Completely deletes the EKS cluster and all resources
-  ```bash
-  ./delete_cluster.sh
-  ```
-
-- **`refresh_dns_record.sh`** - Updates Route53 DNS records for services
-  ```bash
-  # For frontend
-  ./refresh_dns_record.sh
-  
-  # For Grafana
-  ./refresh_dns_record.sh -s prometheus-operator-grafana -n monitoring -p grafana
-  ```
-
-### Directory Structure
-
+# Step 3: Install and configure OpenTelemetry Demo
+# This will use the already installed monitoring and add OpenTelemetry-specific configurations
+../../helper_scripts/configure_otel_demo_observability.sh
 ```
-/
-├── build_one.sh                # Main orchestration script
-├── build_cluster.sh            # Creates EKS cluster
-├── configure_cluster_base.sh    # Sets up base infrastructure
-├── configure_otel_demo.sh       # Deploys OpenTelemetry demo
-├── clean_cluster.sh            # Cleans cluster resources
-├── delete_cluster.sh           # Deletes the entire cluster
-├── refresh_dns_record.sh       # Updates Route53 DNS records
-├── dashboards/                 # Grafana dashboards
-├── scripts/                    # Helper scripts
-│   └── setup_port_forwards.sh
-├── subscripts/                 # Installation scripts
-│   └── install_gremlin.sh
-└── config/                     # Configuration files
-    ├── gremlin-values-custom.yaml
-    └── otel-demo-values.yaml
+
+**Note:** The workflow above uses the unified monitoring framework automatically. The base cluster configuration script calls the master monitoring setup script to install Prometheus/Grafana, and the OpenTelemetry demo configuration script adds OpenTelemetry-specific configurations on top of that.
+
+### Unified Monitoring Framework
+
+The new monitoring framework provides a standardized way to install and configure monitoring tools:
+
+```bash
+# Install baseline monitoring (Prometheus/Grafana)
+cd monitoring
+./setup_monitoring.sh -t prometheus
+
+# Install Dynatrace monitoring
+./setup_monitoring.sh -t dynatrace
+
+# Install New Relic monitoring
+./setup_monitoring.sh -t newrelic
+
+# Install DataDog monitoring
+./setup_monitoring.sh -t datadog
 ```
+
+### Gremlin Installation
+
+The Gremlin installation script now supports interactive prompts:
+
+```bash
+cd build_scripts/gremlin
+./install.sh
+```
+
+Options:
+- `--team-id` - Specify Gremlin Team ID
+- `--team-secret` - Specify Gremlin Team Secret
+- `--cluster-id` - Specify custom Gremlin Cluster ID
+- `--tag-namespaces` - Comma-separated list of namespaces to tag for Gremlin
 
 ## Prerequisites
 
@@ -118,88 +91,32 @@ Before starting, ensure you have the following installed and configured:
 1. AWS CLI installed and configured with your credentials (`aws configure`)
 2. `eksctl` installed
 3. `kubectl` installed
-4. A Gremlin account with Team ID and Team Secret
-5. `istioctl` (will be installed automatically if not present)
-
-## Istio Configuration
-
-This workshop uses Istio 1.18.0 for service mesh capabilities. The installation is handled automatically by the setup scripts.
-
-Key Istio components:
-- Istio Control Plane (istiod)
-- Ingress Gateway (LoadBalancer type with AWS NLB)
-- Egress Gateway
-- Kiali for service mesh observability
-- Jaeger for distributed tracing
-
-To modify the Istio version, set the `ISTIO_VERSION` environment variable before running the setup:
-
-```bash
-export ISTIO_VERSION=1.18.0  # Default version
-./build_one.sh
-```
-
-## Setup
-
-1. Clone this repository:
-   ```bash
-   git clone <repository-url>
-   cd workshop
-   ```
-
-2. Set required environment variables:
-   ```bash
-   # Set your desired EKS cluster name
-   export CLUSTER_NAME=your-cluster-name
-
-This script:
-1. Creates an EKS cluster
-2. Waits for cluster stabilization
-3. Installs Prometheus and Grafana
-4. Deploys the OpenTelemetry demo application
-5. Configures Gremlin for chaos engineering
-
-
+4. Helm v3 installed
+5. A Gremlin account with Team ID and Team Secret (optional)
+6. Dynatrace, New Relic, or DataDog account (optional)
 
 ## Monitoring
 
-### Grafana Dashboards
+### Prometheus and Grafana
 
-The following optimized dashboards are available:
+The baseline monitoring includes Prometheus and Grafana installed via the kube-prometheus-stack Helm chart in the monitoring namespace.
 
-1. **CPU Dashboard**
-   - Container CPU usage with recording rules
-   - 30-second refresh interval
-   - Optimized query performance
+### Observability Tools Integration
 
-2. **Memory Dashboard**
-   - Container memory metrics
-   - Working set and cache monitoring
-   - Pre-computed recording rules
-
-3. **Network HTTP Dashboard**
-   - HTTP request rates
-   - DNS request latency
-   - Error rates monitoring
-
-4. **Latency Dashboard**
-   - API server request durations
-   - CoreDNS performance
-   - Kubelet and REST client latency
+The framework supports integration with:
+- Dynatrace
+- New Relic
+- DataDog
+- Gremlin (for chaos engineering)
 
 ### Access
 
-Grafana is accessible via LoadBalancer service. The URL will be displayed after deployment completion.
+Grafana is accessible via port-forwarding:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
+```
 
 Default credentials:
 - Username: admin
-- Password: (retrieved from Kubernetes secret)
-
-## Chaos Engineering
-
-Gremlin is automatically configured with:
-- Service-level targeting using Kubernetes annotations
-- Cluster identification for experiments
-- Full integration with monitoring stack
-
-Refer to Gremlin documentation for running chaos experiments.
+- Password: prom-operator

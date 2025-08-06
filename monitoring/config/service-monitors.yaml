@@ -1,0 +1,114 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    port: https-metrics
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    path: /metrics/cadvisor
+    port: https-metrics
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+  jobLabel: k8s-app
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  selector:
+    matchLabels:
+      k8s-app: kubelet
+---
+# ServiceMonitor for OpenTelemetry Collector
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app.kubernetes.io/component: opentelemetry-collector
+spec:
+  endpoints:
+  - interval: 30s
+    port: metrics
+    path: /metrics
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otelcol
+---
+# ServiceMonitor for OpenTelemetry Demo Services
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-services
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app.kubernetes.io/part-of: opentelemetry-demo
+spec:
+  endpoints:
+  - interval: 30s
+    port: http
+    path: /metrics
+    scheme: http
+    honorLabels: true
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchExpressions:
+      - {key: app.kubernetes.io/part-of, operator: In, values: [opentelemetry-demo]}
+---
+# ServiceMonitor for OpenTelemetry Demo Frontend
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-frontend
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app.kubernetes.io/component: frontend
+spec:
+  endpoints:
+  - interval: 30s
+    port: http
+    path: /metrics
+    scheme: http
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+---
+# ServiceMonitor for OpenTelemetry Demo Redis
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-demo-redis
+  namespace: monitoring
+  labels:
+    release: prometheus-operator
+    app.kubernetes.io/component: redis
+spec:
+  endpoints:
+  - interval: 30s
+    port: redis
+    path: /metrics
+  namespaceSelector:
+    matchNames:
+      - otel-demo
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey

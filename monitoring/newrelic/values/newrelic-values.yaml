@@ -1,0 +1,61 @@
+global:
+  licenseKey: "NRAK-NEN4AEYCWR41FTG6M9WBBXEFZMQ"
+  cluster: "seanwiley-otel-new"
+  lowDataMode: false
+
+nri-metadata-injection:
+  enabled: true
+
+newrelic-infrastructure:
+  enabled: true
+  privileged: true
+  kubelet:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+  prometheus:
+    enabled: true
+    configMap:
+      create: true
+  integrations:
+    nri-kube-events:
+      enabled: true
+    nri-prometheus:
+      enabled: true
+      config:
+        kubernetes:
+          integrations_filter:
+            enabled: true
+
+nri-prometheus:
+  enabled: true
+  config:
+    kubernetes:
+      integrations_filter:
+        enabled: true
+
+newrelic-logging:
+  enabled: true
+  fluentBit:
+    config:
+      outputs: |
+        [OUTPUT]
+            Name  newrelic
+            Match *
+    containers:
+      enable: true
+
+kube-state-metrics:
+  enabled: true
+
+prometheus-node-exporter:
+  enabled: true
+
+newrelic-pixie:
+  enabled: false
+
+pixie-chart:
+  enabled: false
+
+newrelic-k8s-metrics-adapter:
+  enabled: false
