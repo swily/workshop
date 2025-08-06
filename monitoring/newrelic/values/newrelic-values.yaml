@@ -1,5 +1,5 @@
 global:
-  licenseKey: "YOUR_NEW_RELIC_LICENSE_KEY_HERE"
+  licenseKey: "NRAK-NEN4AEYCWR41FTG6M9WBBXEFZMQ"
   cluster: "seanwiley-otel-new"
   lowDataMode: false
 
