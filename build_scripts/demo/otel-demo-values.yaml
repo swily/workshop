@@ -1,0 +1,100 @@
+components:
+  accounting:
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        memory: 256Mi
+
+prometheus:
+  server:
+    resources:
+      limits:
+        memory: 2Gi
+      requests:
+        memory: 1Gi
+  serverFiles: {}
+
+opentelemetry-collector:
+  config:
+    exporters:
+      otlp:
+        endpoint: jaeger-collector:4317
+        tls:
+          insecure: true
+        sending_queue:
+          storage: file_storage/otc
+          queue_size: 5000
+        retry_on_failure:
+          initial_interval: 5s
+          max_interval: 30s
+
+          max_elapsed_time: 10m
+      otlphttp/prometheus:
+        endpoint: http://prometheus:9090/api/v1/otlp
+        tls:
+          insecure: true
+        sending_queue:
+          storage: file_storage/otc
+          queue_size: 5000
+        retry_on_failure:
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 10m
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+    receivers:
+      redis:
+        collection_interval: 10s
+        endpoint: valkey-cart:6379
+    connectors:
+      spanmetrics:
+        namespace: "traces.span.metrics"
+        dimensions:
+          - name: "http.method"
+            default: "GET"
+          - name: "http.status_code"
+            default: "200"
+        dimensions_cache_size: 1000
+        aggregation_temporality: DELTA
+        metrics_flush_interval: 15s
+    extensions:
+      file_storage/otc:
+        directory: /var/lib/otelcol/storage
+        timeout: 10s
+    processors:
+      batch:
+        send_batch_size: 8192
+        timeout: 5s
+    service:
+      extensions: [health_check, file_storage/otc]
+      pipelines:
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          processors: [k8sattributes, memory_limiter, resource, transform, batch]
+          exporters: [otlp, debug, spanmetrics]
+        metrics:
+          receivers: [spanmetrics, redis]
+          processors: [k8sattributes, memory_limiter, resource, batch]
+          exporters: [otlphttp/prometheus, debug]
+  ports:
+    prom-metrics:
+      enabled: true
+      containerPort: 8889
+      servicePort: 8889
+      protocol: TCP
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      memory: 1Gi
+  podAnnotations:
+    prometheus.io/port: "8888"
+    prometheus.io/scrape: "true"
+    opentelemetry_community_demo: "true"
+  extraVolumes:
+    - name: otelcol-storage
+      emptyDir: {}
+  extraVolumeMounts:
+    - name: otelcol-storage
+      mountPath: /var/lib/otelcol/storage
