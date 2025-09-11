@@ -5,7 +5,7 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # --- Configuration---
 DEFAULT_CLUSTER_NAME="current-workshop"
-VALUES_FILE="${SCRIPT_DIR}/otel-demo-values.yaml"
+VALUES_FILE="${SCRIPT_DIR}/otel-demo-values-enhanced.yaml"
 
 # --- Helper Functions ---
 
@@ -28,17 +28,6 @@ print_otel_demo_banner() {
   echo ""
 }
 
-# Progressive GREMLIN ASCII art
-print_gremlin_banner() {
-  echo ""
-  echo "  ██████╗ ██████╗ ███████╗███╗   ███╗██╗     ██╗███╗   ██╗"
-  echo " ██╔════╝ ██╔══██╗██╔════╝████╗ ████║██║     ██║████╗  ██║"
-  echo " ██║  ███╗██████╔╝█████╗  ██╔████╔██║██║     ██║██╔██╗ ██║"
-  echo " ██║   ██║██╔══██╗██╔══╝  ██║╚██╔╝██║██║     ██║██║╚██╗██║"
-  echo " ╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║███████╗██║██║ ╚████║"
-  echo "  ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚══════╝╚═╝╚═╝  ╚═══╝"
-  echo ""
-}
 
 print_gremlin_progress() {
   local current=$1
@@ -48,101 +37,39 @@ print_gremlin_progress() {
   local filled=$((current * width / total))
   local empty=$((width - filled))
   
-  # Clear the area and move cursor up
-  printf "\033[8A\033[J"
+  # Colors for progression (grey to green)
+  local GREY='\033[0;37m'
+  local GREEN='\033[0;32m'
+  local NC='\033[0m'
   
-  # GREMLIN ASCII art lines - each letter appears at different percentages
-  local line1="  "
-  local line2="  "
-  local line3="  "
-  local line4="  "
-  local line5="  "
-  local line6="  "
-  
-  # G appears at 15%
-  if [ $percentage -ge 15 ]; then
-    line1+="██████╗ "
-    line2+="██╔════╝ "
-    line3+="██║  ███╗"
-    line4+="██║   ██║"
-    line5+="╚██████╔╝"
-    line6+=" ╚═════╝ "
-  fi
-  
-  # R appears at 30%
-  if [ $percentage -ge 30 ]; then
-    line1+="██████╗ "
-    line2+="██╔══██╗"
-    line3+="██████╔╝"
-    line4+="██╔══██╗"
-    line5+="██║  ██║"
-    line6+="╚═╝  ╚═╝"
-  fi
-  
-  # E appears at 45%
-  if [ $percentage -ge 45 ]; then
-    line1+="███████╗"
-    line2+="██╔════╝"
-    line3+="█████╗  "
-    line4+="██╔══╝  "
-    line5+="███████╗"
-    line6+="╚══════╝"
-  fi
-  
-  # M appears at 60%
-  if [ $percentage -ge 60 ]; then
-    line1+="███╗   ███╗"
-    line2+="████╗ ████║"
-    line3+="██╔████╔██║"
-    line4+="██║╚██╔╝██║"
-    line5+="██║ ╚═╝ ██║"
-    line6+="╚═╝     ╚═╝"
-  fi
-  
-  # L appears at 75%
-  if [ $percentage -ge 75 ]; then
-    line1+="██╗     "
-    line2+="██║     "
-    line3+="██║     "
-    line4+="██║     "
-    line5+="███████╗"
-    line6+="╚══════╝"
-  fi
-  
-  # I appears at 90%
-  if [ $percentage -ge 90 ]; then
-    line1+="██╗"
-    line2+="██║"
-    line3+="██║"
-    line4+="██║"
-    line5+="██║"
-    line6+="╚═╝"
-  fi
-  
-  # N appears at 100%
+  # Use grey until 100%, then green
+  local color=$GREY
   if [ $percentage -ge 100 ]; then
-    line1+="███╗   ██╗"
-    line2+="████╗  ██║"
-    line3+="██╔██╗ ██║"
-    line4+="██║╚██╗██║"
-    line5+="██║ ╚████║"
-    line6+="╚═╝  ╚═══╝"
+    color=$GREEN
   fi
   
-  # Print the GREMLIN ASCII art
-  echo "$line1"
-  echo "$line2"
-  echo "$line3"
-  echo "$line4"
-  echo "$line5"
-  echo "$line6"
-  echo ""
+  # Only show progress bar during scaling, ASCII art comes at the end
+  printf "\r["
+  printf "%*s" $filled | tr ' ' '#'
+  printf "%*s" $empty | tr ' ' '-'
+  printf "] %d%% (%d/%d)" $percentage $current $total
+}
+
+show_otel_demo_ascii_art() {
+  local GREEN='\033[0;32m'
+  local NC='\033[0m'
   
-  # Print the progress bar
-  printf "["
-  printf "%*s" $filled | tr ' ' '█'
-  printf "%*s" $empty | tr ' ' '░'
-  printf "] %d%%" $percentage
+  echo ""
+  echo ""
+  echo -e "${GREEN} ██████╗ ████████╗███████╗██╗         ██████╗ ███████╗███╗   ███╗ ██████╗${NC}"
+  echo -e "${GREEN}██╔═══██╗╚══██╔══╝██╔════╝██║         ██╔══██╗██╔════╝████╗ ████║██╔═══██╗${NC}"
+  echo -e "${GREEN}██║   ██║   ██║   █████╗  ██║         ██║  ██║█████╗  ██╔████╔██║██║   ██║${NC}"
+  echo -e "${GREEN}██║   ██║   ██║   ██╔══╝  ██║         ██║  ██║██╔══╝  ██║╚██╔╝██║██║   ██║${NC}"
+  echo -e "${GREEN}╚██████╔╝   ██║   ███████╗███████╗    ██████╔╝███████╗██║ ╚═╝ ██║╚██████╔╝${NC}"
+  echo -e "${GREEN} ╚═════╝    ╚═╝   ╚══════╝╚══════╝    ╚═════╝ ╚══════╝╚═╝     ╚═╝ ╚═════╝${NC}"
+  echo ""
+  echo -e "${GREEN}         OpenTelemetry Demo Services Ready!${NC}"
+  echo ""
 }
 
 show_help() {
@@ -235,14 +162,62 @@ check_monitoring() {
 }
 
 install_otel_demo() {
-  # Create namespace for OpenTelemetry demo
-  kubectl create namespace otel-demo 2>/dev/null || true
+  echo "Installing OpenTelemetry Demo..."
+  
+  # Create locust ConfigMap with enhanced locustfile.py and people.json data
+  echo "Creating locust configuration..."
+  kubectl create configmap locust-config \
+    --from-file=locustfile.py="${SCRIPT_DIR}/locustfile.py" \
+    --from-file=people.json="/Users/seanwiley/opentelemetry-demo/src/load-generator/people.json" \
+    --namespace otel-demo \
+    --dry-run=client -o yaml | kubectl apply -f -
+  
+  # Helm repositories already updated in update_helm_repos()
 
-  # Install silently
-  helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
+  # Install the OpenTelemetry demo
+  if [ -f "${SCRIPT_DIR}/otel-demo-values-enhanced.yaml" ]; then
+    VALUES_FILE="${SCRIPT_DIR}/otel-demo-values-enhanced.yaml"
+  else
+    echo "Enhanced values file not found. Please ensure otel-demo-values-enhanced.yaml exists."
+    exit 1
+  fi
+  
+  if ! helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
     --namespace otel-demo \
     --values "${VALUES_FILE}" \
-    --timeout 15m0s >/dev/null 2>&1
+    --timeout 15m0s; then
+    echo "Failed to install OpenTelemetry demo"
+    exit 1
+  fi
+
+  echo "OpenTelemetry Demo installed successfully"
+  
+  # Wait for frontend deployment to be ready
+  echo "Waiting for frontend deployment to be ready..."
+  kubectl wait --for=condition=available --timeout=300s deployment/frontend -n otel-demo || {
+    echo "Frontend deployment failed to become ready"
+    kubectl get pods -n otel-demo
+    exit 1
+  }
+  
+  # Verify frontend-proxy service exists
+  if ! kubectl get service frontend-proxy -n otel-demo >/dev/null 2>&1; then
+    echo "Frontend proxy service not found"
+    kubectl get services -n otel-demo
+    exit 1
+  fi
+  
+  echo "Frontend deployment and services are ready"
+  
+  # Update load generator for ALB if using enhanced configuration
+  if [ "$VALUES_FILE" = "${SCRIPT_DIR}/otel-demo-values-enhanced.yaml" ]; then
+    echo "Enhanced configuration detected - updating load generator for ALB integration..."
+    if [ -f "${SCRIPT_DIR}/update_loadgen_alb.sh" ]; then
+      "${SCRIPT_DIR}/update_loadgen_alb.sh"
+    else
+      echo "ALB update script not found - load generator will use internal service endpoint"
+    fi
+  fi
 }
 
 configure_servicemonitor() {
@@ -277,31 +252,28 @@ scale_deployments() {
   local EXCLUDE_SERVICES="grafana jaeger prometheus opensearch kafka loadgenerator valkey flagd imageprovider otelcol"
   local deployments_to_scale=()
 
-  # Get list of deployments to scale
-  for deployment in $(kubectl get deployments -n otel-demo -o jsonpath='{.items[*].metadata.name}'); do
-    local exclude=false
-    for exclude_svc in $EXCLUDE_SERVICES; do
-      if [[ "$deployment" == *"$exclude_svc"* ]]; then
-        exclude=true
+  # Get all deployments in otel-demo namespace
+  local all_deployments
+  all_deployments=$(kubectl get deployments -n otel-demo -o jsonpath='{.items[*].metadata.name}')
+
+  # Filter out excluded services
+  for deployment in $all_deployments; do
+    local should_exclude=false
+    for exclude in $EXCLUDE_SERVICES; do
+      if [[ "$deployment" == *"$exclude"* ]]; then
+        should_exclude=true
         break
       fi
     done
-    if [[ "$exclude" == "false" ]]; then
+    if [ "$should_exclude" = false ]; then
       deployments_to_scale+=("$deployment")
     fi
   done
 
-  # Initialize empty GREMLIN area
   echo ""
-  echo ""
-  echo ""
-  echo ""
-  echo ""
-  echo ""
-  echo ""
-  echo ""
-
-  # Scale deployments with GREMLIN progress
+  echo "Scaling OpenTelemetry Demo services..."
+  
+  # Scale deployments with simple progress
   local count=0
   local total=${#deployments_to_scale[@]}
   
@@ -312,16 +284,16 @@ scale_deployments() {
     sleep 0.2
   done
   echo ""
+  
+  # Show the ASCII art after scaling is complete
+  show_otel_demo_ascii_art
 }
 
 show_summary() {
-  echo ""
-  print_header "🎉 OpenTelemetry Demo Ready"
-  echo ""
-  echo "To access all services, run the port forward script:"
-  echo "  ./helper_scripts/dns/port_forward_services.sh"
-  echo ""
+  # Summary removed - deployment complete without verbose output
+  return 0
 }
+
 
 # --- Main Execution ---
 

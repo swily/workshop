@@ -1,8 +1,8 @@
 #!/bin/bash -e
 
 # Set AWS region
-export AWS_DEFAULT_REGION=us-east-2
-export AWS_REGION=us-east-2
+export AWS_DEFAULT_REGION=${AWS_REGION:-us-east-2}
+export AWS_REGION=${AWS_REGION:-us-east-2}
 
 # Show help information
 show_help() {
@@ -51,9 +51,9 @@ if [ -z "${CLUSTER_NAME}" ]; then
   echo "CLUSTER_NAME not set, using default: ${CLUSTER_NAME}"
 fi
 
-# Function to configure subnet routing for load balancers
-configure_subnet_routing() {
-  echo "Configuring subnet routing for load balancers..."
+# Function to verify subnet configuration for load balancers
+verify_subnet_configuration() {
+  echo "Verifying load balancer subnet configuration..."
   
   # Get VPC ID from the cluster
   local vpc_id=$(aws eks describe-cluster --name ${CLUSTER_NAME} --query "cluster.resourcesVpcConfig.vpcId" --output text)
@@ -62,43 +62,17 @@ configure_subnet_routing() {
     return 1
   fi
   
-  # Get internet gateway ID
-  local igw_id=$(aws ec2 describe-internet-gateways --filters "Name=attachment.vpc-id,Values=${vpc_id}" --query "InternetGateways[0].InternetGatewayId" --output text)
-  if [[ -z "$igw_id" || "$igw_id" == "None" ]]; then
-    echo "❌ No internet gateway found for VPC ${vpc_id}"
-    return 1
-  fi
-  
-  # Get subnets with the kubernetes.io/role/elb tag
+  # Get subnets with the kubernetes.io/role/elb tag (public subnets for ALB)
   local elb_subnets=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${vpc_id}" "Name=tag:kubernetes.io/role/elb,Values=1" --query "Subnets[*].SubnetId" --output text)
   if [[ -z "$elb_subnets" ]]; then
-    echo "❌ No subnets with kubernetes.io/role/elb tag found in VPC ${vpc_id}"
+    echo "❌ No public subnets with kubernetes.io/role/elb tag found in VPC ${vpc_id}"
+    echo "This is required for ALB creation. Please ensure your EKS cluster has public subnets."
     return 1
   fi
   
-  # Create a new route table for load balancer subnets
-  echo "Creating route table for load balancer subnets..."
-  local route_table_id=$(aws ec2 create-route-table --vpc-id ${vpc_id} --query "RouteTable.RouteTableId" --output text)
-  if [[ -z "$route_table_id" ]]; then
-    echo "❌ Failed to create route table"
-    return 1
-  fi
-  
-  # Add a tag to the route table
-  aws ec2 create-tags --resources ${route_table_id} --tags Key=Name,Value=${CLUSTER_NAME}-lb-route-table Key=ManagedBy,Value=install_load_balancer.sh
-  
-  # Add a route to the internet gateway
-  echo "Adding route to internet gateway..."
-  aws ec2 create-route --route-table-id ${route_table_id} --destination-cidr-block 0.0.0.0/0 --gateway-id ${igw_id}
-  
-  # Associate the route table with the load balancer subnets
-  echo "Associating route table with load balancer subnets..."
-  for subnet_id in ${elb_subnets}; do
-    echo "Associating subnet ${subnet_id} with route table ${route_table_id}"
-    aws ec2 associate-route-table --route-table-id ${route_table_id} --subnet-id ${subnet_id}
-  done
-  
-  echo "✅ Subnet routing for load balancers configured successfully!"
+  local subnet_count=$(echo $elb_subnets | wc -w)
+  echo "✅ Found ${subnet_count} public subnet(s) ready for load balancer deployment"
+  echo "✅ EKS subnets are pre-configured with internet routing - no additional setup needed"
 }
 
 # Function to create an ALB/CLB for the OpenTelemetry demo frontend-proxy
@@ -110,14 +84,19 @@ create_load_balancer() {
   echo "Updating kubeconfig..."
   aws eks update-kubeconfig --name ${CLUSTER_NAME} --region ${AWS_REGION}
   
-  # Check if the frontend-proxy service exists
-  if ! kubectl get service otel-demo-frontendproxy -n otel-demo &>/dev/null; then
-    echo -e "\n⚠️  Warning: otel-demo-frontendproxy service not found in otel-demo namespace!"
+  # Check if the frontend-proxy service exists (try both naming conventions)
+  if kubectl get service frontend-proxy -n otel-demo &>/dev/null; then
+    FRONTEND_SERVICE="frontend-proxy"
+  elif kubectl get service otel-demo-frontendproxy -n otel-demo &>/dev/null; then
+    FRONTEND_SERVICE="otel-demo-frontendproxy"
+  else
+    echo -e "\n⚠️  Warning: frontend-proxy service not found in otel-demo namespace!"
     echo "The OpenTelemetry demo doesn't appear to be installed yet."
-    echo "You should install the OpenTelemetry demo first with:"
-    echo "  ./fix_configure_otel_demo.sh -n ${CLUSTER_NAME}"
+    echo "You should install the OpenTelemetry demo first."
     exit 1
   fi
+  
+  echo "✅ Found frontend service: ${FRONTEND_SERVICE}"
   
   # Create a temporary ingress manifest file
   local ingress_file="/tmp/otel-demo-ingress.yaml"
@@ -157,7 +136,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: otel-demo-frontendproxy
+            name: ${FRONTEND_SERVICE}
             port:
               number: 8080
 EOL
@@ -193,7 +172,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: otel-demo-frontendproxy
+            name: ${FRONTEND_SERVICE}
             port:
               number: 8080
 EOL
@@ -218,6 +197,21 @@ EOL
   echo "You can access the OpenTelemetry demo at: http://${lb_hostname}/"
   echo "Note: It may take a few minutes for DNS to propagate and the load balancer to become fully available."
   
+  # Update load generator to point to the new load balancer (only if using basic config)
+  echo -e "\n🎯 Checking load generator configuration..."
+  if kubectl get deployment load-generator -n otel-demo -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="LOCUST_HOST")].value}' | grep -q "frontend-proxy"; then
+    echo "Enhanced configuration detected - load generator already configured via Helm values"
+  else
+    echo "Basic configuration detected - updating load generator to target load balancer..."
+    if [ -f "../../helper_scripts/update_loadgen_target.sh" ]; then
+      cd ../..
+      ./helper_scripts/update_loadgen_target.sh "http://${lb_hostname}"
+      cd build_scripts/load-balancer
+    else
+      echo "⚠️  Load generator update script not found - skipping"
+    fi
+  fi
+  
   # Clean up the temporary file
   rm -f ${ingress_file}
 }
@@ -225,9 +219,24 @@ EOL
 # Main execution
 echo "=== Installing load balancer for OpenTelemetry demo on cluster: ${CLUSTER_NAME} ==="
 
-# Configure subnet routing for load balancers
-echo "=== Configuring subnet routing for load balancers ==="
-configure_subnet_routing
+# Check if enhanced configuration ALB ingress already exists
+if kubectl get ingress frontend-proxy -n otel-demo >/dev/null 2>&1; then
+    ALB_HOSTNAME=$(kubectl get ingress frontend-proxy -n otel-demo -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+    if [ -n "$ALB_HOSTNAME" ]; then
+        # Update load generator silently
+        if [ -f "/Users/seanwiley/workshop/helper_scripts/update_loadgen_target.sh" ]; then
+            /Users/seanwiley/workshop/helper_scripts/update_loadgen_target.sh "http://${ALB_HOSTNAME}" >/dev/null 2>&1
+        fi
+    fi
+    exit 0
+fi
+
+echo "ℹ️  No enhanced ingress found - creating separate load balancer"
+echo "ℹ️  This is for basic configurations or manual override"
+
+# Verify subnet configuration for load balancers
+echo "=== Verifying subnet configuration for load balancers ==="
+verify_subnet_configuration
 
 # Create the load balancer
 create_load_balancer "${lb_type}"

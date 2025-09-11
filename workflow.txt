@@ -1,0 +1,96 @@
+# Workshop Orchestration Workflow (Updated)
+
+## Overview
+`workshop.sh` orchestrates cluster creation, base setup, application deployment, monitoring, and optional chaos integrations. ALB Ingress is the default internet edge. Istio is optional and used for mesh observability (not as the edge).
+
+## Execution Paths
+
+1) Build New Cluster
+```
+./workshop.sh --action build_new --cluster-name <name> --region <region> [--install-istio] [--monitoring <platform>] [--https off|alb-acm] [--externaldns-iam-role-arn <arn>]
+├── scripts/operations/cluster_create.sh
+│   └── lib/cluster.sh
+│       ├── create_cluster()                # eksctl
+│       ├── configure_cluster_base()        # ALB controller, optional Istio, kube-prom-stack
+│       └── install_prometheus_operator()   # kube-prometheus-stack (ephemeral for demo)
+├── scripts/operations/deploy_otel.sh       # Deploy OpenTelemetry Demo (ALB ingress edge)
+├── scripts/gremlin_install.sh (optional)
+└── lib/monitoring.sh::setup_comprehensive_monitoring() (optional platform add-ons, ExternalDNS)
+```
+
+2) Deploy to Existing Cluster
+```
+./workshop.sh --action deploy_existing --cluster-name <name> [--monitoring <platform>] [--https off|alb-acm] [--externaldns-iam-role-arn <arn>]
+├── scripts/operations/deploy_otel.sh
+├── scripts/gremlin_install.sh (optional)
+└── lib/monitoring.sh::setup_comprehensive_monitoring()
+```
+
+3) Gremlin Only Setup
+```
+./workshop.sh --action gremlin_only --cluster-name <name>
+├── scripts/gremlin_install.sh
+└── lib/monitoring.sh::setup_gremlin_monitoring()  # installs PNI + create_health_checks.sh
+```
+
+4) Cleanup/Delete
+```
+./workshop.sh --action cleanup --cluster-name <name> --region <region>
+└── scripts/operations/cluster_cleanup.sh
+    └── lib/cluster.sh::cleanup_cluster()  # Ingress/LB cleanup, eksctl delete, CFN fallback, IAM cleanup
+```
+
+## Internet Edge and TLS/DNS
+
+- ALB Ingress is the default edge for the app and monitoring.
+- TLS (HTTPS) at ALB:
+  - `--https alb-acm` adds certificate + redirect annotations to Ingresses when ACM cert is available.
+  - `--https off` keeps HTTP-only.
+- ExternalDNS (Route53):
+  - If `--externaldns-iam-role-arn` is provided, ExternalDNS is installed with IRSA and will manage DNS for annotated Ingresses.
+
+## Flags and Options
+
+- workshop.sh
+  - `--action` build_new|deploy_existing|gremlin_only|cleanup
+  - `--cluster-name` <name>
+  - `--region` <aws-region>
+  - `--monitoring` grafana|prometheus|dynatrace|newrelic|datadog|appdynamics|none
+  - `--https` off|alb-acm
+  - `--externaldns-iam-role-arn` <arn>
+  - `--install-istio` (optional mesh install; ALB remains edge)
+  - `--gremlin-team-id` <id> `--gremlin-team-secret` <secret> `--gremlin-api-key` <key>
+  - `--skip-patches` `--skip-gremlin-enhancements` `--dry-run`
+
+- scripts/operations/cluster_create.sh
+  - `--cluster-name` <name> `--region` <region>
+  - `--node-type` <type> `--node-count` <n>
+  - `--install-istio` (optional)
+  - `--monitoring` grafana|dynatrace|newrelic|none
+  - `--dry-run`
+
+- scripts/operations/deploy_otel.sh
+  - `--cluster-name` <name> `--namespace` <ns>
+  - `--chart-version` <ver>
+  - `--disable-jaeger` `--disable-prometheus`
+  - `--dry-run`
+
+- scripts/gremlin_install.sh
+  - `--cluster-name` <name>
+  - `--type` standard|pni|both (default: standard)
+  - `--namespace` <ns>
+  - `--team-id` <id> `--team-secret` <secret> `--api-key` <key>
+  - `--cluster-id` <id> (defaults to cluster name)
+  - `--istio` (optional integration stubs) `--auto-tag [ns]` `--dry-run`
+
+## Notes
+
+- Istio is optional and used for mesh functionality. The external edge remains ALB Ingress.
+- kube-prometheus-stack is installed without persistence for demo-friendliness.
+- ExternalDNS and ACM are optional and controlled via flags; DNS/HTTPS enablement is automatic when configured.
+
+## Deprecated/Obsolete (replaced by scripts/operations + lib/*)
+
+- build_scripts/* (cluster, demo, gremlin, load-balancer)
+- monitoring/setup_monitoring.sh
+- monitoring/grafana/ingress/deploy_grafana_ingress.sh (superseded by lib/monitoring.sh ingress functions)

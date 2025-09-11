@@ -1,0 +1,124 @@
+# Demo Environment Consolidation and Performance Plan (TODO2)
+
+## 1) Goals
+- Reduce connection latency and page load time for `demo-frontend.gremlinpoc.com`.
+- Simplify external exposure under a single ALB with path-based routing.
+- Enable HTTPS (HTTP/2) with redirect to improve security and performance.
+- Keep existing services unchanged; minimize risk.
+- Clean up legacy/unused load balancers to reduce cost and clutter.
+
+## 2) Current State (as of now)
+- Multiple ALBs: frontend, otel-grafana, otel-prometheus, monitoring-grafana.
+- Frontend is HTTP-only; no HTTPS listener configured.
+- Static assets are cacheable; HTML not compressed by proxy; upstream service times are low but ALB connect delays intermittently high.
+- New consolidated ingress exists in `otel-demo` (idle, not wired via DNS yet):
+  - Ingress: `consolidated-demo-ingress`
+  - ALB: k8s-oteldemo-consolid-0e3dc0e26c-1361285946.us-east-2.elb.amazonaws.com
+
+## 3) Consolidated Single-ALB Plan (HTTP first, minimal risk)
+1. Apply or confirm manifests:
+   - `workshop/monitoring-grafana-proxy-service.yaml` (ExternalName in `otel-demo`)
+   - `workshop/consolidated-demo-ingress.yaml` (Ingress in `otel-demo`)
+2. Verify the new ALB is provisioned and healthy:
+   - `kubectl -n otel-demo get ingress consolidated-demo-ingress -o wide`
+   - Wait for `.status.loadBalancer.ingress[0].hostname`.
+3. Verify routes directly against the ALB hostname (before DNS cutover):
+   - `curl -I http://<new-alb>/`
+   - `curl -I http://<new-alb>/grafana`
+   - `curl -I http://<new-alb>/monitoring`
+   - `curl -I http://<new-alb>/prometheus`
+4. Update DNS (CNAME) for `demo-frontend.gremlinpoc.com` to the new ALB hostname.
+5. Validate via browser and curl after DNS propagates:
+   - Root page renders; `/grafana`, `/monitoring`, `/prometheus` reachable.
+   - Measure connect time and TTFB; expect consistent low connect times.
+6. After verification, decommission the old frontend ingress/ALB:
+   - `kubectl -n otel-demo delete ingress frontend-proxy` (if that owns the ALB)
+   - Confirm old ALB is deleted in AWS.
+
+Rollback:
+- Repoint DNS back to old ALB CNAME.
+- Delete consolidated ingress if required.
+
+## 4) HTTPS Enablement Plan (for consolidated or existing ALBs)
+Target benefits: HTTP/2, secure transport, browser friendliness, possible perf gains.
+
+A) Annotations to add to Ingress resources exposed publicly:
+- `alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443},{"HTTP":80}]'`
+- `alb.ingress.kubernetes.io/certificate-arn: <ACM_CERT_ARN_FOR_GREMLINPOC_COM>`
+- `alb.ingress.kubernetes.io/ssl-redirect: '443'`
+- Optional: `alb.ingress.kubernetes.io/actions.ssl-redirect` (for complex rulesets)
+
+B) Where to apply:
+- Consolidated path-based ingress (`consolidated-demo-ingress`) OR
+- Each existing ingress (frontend, otel-grafana, otel-prometheus) if keeping multiple ALBs.
+
+C) Steps:
+1. Obtain the ACM certificate ARN for `gremlinpoc.com` (wildcard cert recommended).
+2. Patch ingress annotations (prefer consolidated ingress to keep it centralized).
+3. Apply changes; confirm ALB shows :443 listener and certificate attachment.
+4. Test:
+   - `curl -I https://demo-frontend.gremlinpoc.com/` should return 200/3xx and negotiate HTTP/2.
+   - HTTP requests should be redirected to HTTPS.
+
+Notes:
+- If Grafana/Prometheus are served under subpaths, ensure they work under path prefixes (Grafana is typically fine; Prometheus UI under `/prometheus` may require reverse-proxy prefix handling—validate UI assets load.)
+
+## 5) Frontend Delivery Improvements (post-HTTPS)
+- Enable compression for HTML at `frontend-proxy` (Envoy gzip/brotli filter) to reduce transfer size.
+- Keep Next.js static assets with `cache-control: public, max-age=31536000, immutable` (already good).
+- Consider enabling HTTP/2 + TLS session resumption for faster subsequent loads.
+
+## 6) Ongoing Diagnostics (no state changes)
+- Measure connect/TTFB periodically to the current frontend ALB to confirm root cause is ALB-specific.
+- Check CloudWatch metrics for the current frontend ALB: RejectedConnectionCount, TargetResponseTime, HealthyHostCount.
+- Confirm `frontend-proxy` pod readiness stability and lack of restarts.
+
+## 7) LEGACY LOAD BALANCER CLEANUP
+SAFE TO DELETE (No Active Clusters):
+- Istio Load Balancers (No istio-system namespace found):
+  - istio-nlb-secured — Created July 16, 2025
+  - istio-ingressgateway-internet — Created July 16, 2025
+  - k8s-istiosys-istioing-9c4bde9de0 — Created July 22, 2025
+  - test-istio-alb — Created July 17, 2025
+- Old Demo/Test Load Balancers:
+  - samw-static-asg-lb — Created June 6, 2025 (old ASG setup)
+  - group-00-alb — Created June 9, 2025 (bootcamp groups)
+  - group-01-alb — Created June 24, 2025 (bootcamp groups)
+
+Current Active ALB (Keep):
+- samw-alb — Created August 8, 2025 (likely current cluster ALB)
+
+DELETE LEGACY LOAD BALANCERS:
+
+```bash
+# List first (safety)
+aws elbv2 describe-load-balancers --names istio-nlb-secured istio-ingressgateway-internet k8s-istiosys-istioing-9c4bde9de0 test-istio-alb \
+  samw-static-asg-lb group-00-alb group-01-alb --output table || true
+
+# Delete Istio load balancers
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names istio-nlb-secured --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names istio-ingressgateway-internet --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names k8s-istiosys-istioing-9c4bde9de0 --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names test-istio-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+
+# Delete old demo load balancers
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names samw-static-asg-lb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names group-00-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+aws elbv2 delete-load-balancer --load-balancer-arn $(aws elbv2 describe-load-balancers --names group-01-alb --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+```
+
+Cautions:
+- Ensure no active listeners/target groups are tied to in-use services before delete.
+- If any command returns `None` for ARN, verify the name and region.
+
+## 8) Expected Results after Consolidation + HTTPS
+- Connection Time: 75–150 ms → 20–50 ms (≈3x faster)
+- Cost Reduction: ~$72/month → ~$18/month (≈75% savings)
+- Single DNS Lookup: All services via one domain
+- Connection Reuse: Subsequent requests <10 ms (HTTP/2 multiplexing helps)
+
+Final URLs (HTTP first, then HTTPS once enabled):
+- http(s)://demo-frontend.gremlinpoc.com/           – Main application
+- http(s)://demo-frontend.gremlinpoc.com/grafana/   – OTel dashboards
+- http(s)://demo-frontend.gremlinpoc.com/monitoring/– Infrastructure monitoring
+- http(s)://demo-frontend.gremlinpoc.com/prometheus/ – Metrics query

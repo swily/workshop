@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: otel-collector
+  name: otel-demo-otelcol
   namespace: otel-demo
 data:
   relay: |

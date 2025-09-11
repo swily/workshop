@@ -1,0 +1,153 @@
+{
+  "widgets": [
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [ "OTel/Demo/Application", "http_server_duration", "service.name", "frontend" ],
+          [ "...", "checkout" ],
+          [ "...", "cart" ],
+          [ "...", "recommendation" ],
+          [ "...", "currency" ],
+          [ "...", "shipping" ],
+          [ "...", "ad" ],
+          [ "...", "accounting" ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${AWS_REGION}",
+        "title": "Service Response Times",
+        "period": 300,
+        "stat": "Average",
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 0,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [ "OTel/Demo/Application", "http_server_requests_total", "service.name", "frontend", "http.status_code", "200" ],
+          [ "...", "checkout", "...", "." ],
+          [ "...", "cart", "...", "." ],
+          [ "...", "recommendation", "...", "." ],
+          [ "...", "currency", "...", "." ],
+          [ "...", "shipping", "...", "." ],
+          [ "...", "ad", "...", "." ],
+          [ "...", "accounting", "...", "." ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${AWS_REGION}",
+        "title": "Request Volume (Success)",
+        "period": 300,
+        "stat": "Sum",
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [ "OTel/Demo/Application", "http_server_requests_total", "service.name", "frontend", "http.status_code", "4xx" ],
+          [ "...", "checkout", "...", "." ],
+          [ "...", "cart", "...", "." ],
+          [ "...", "recommendation", "...", "." ],
+          [ "...", "currency", "...", "." ],
+          [ "...", "shipping", "...", "." ],
+          [ "...", "ad", "...", "." ],
+          [ "...", "accounting", "...", "." ],
+          [ "...", "frontend", "http.status_code", "5xx" ],
+          [ "...", "checkout", "...", "." ],
+          [ "...", "cart", "...", "." ],
+          [ "...", "recommendation", "...", "." ],
+          [ "...", "currency", "...", "." ],
+          [ "...", "shipping", "...", "." ],
+          [ "...", "ad", "...", "." ],
+          [ "...", "accounting", "...", "." ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${AWS_REGION}",
+        "title": "Error Rates (4xx/5xx)",
+        "period": 300,
+        "stat": "Sum",
+        "yAxis": {
+          "left": {
+            "min": 0
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 6,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [ "ContainerInsights", "pod_cpu_utilization", "ClusterName", "${CLUSTER_NAME}", "Namespace", "otel-demo" ],
+          [ ".", "pod_memory_utilization", ".", ".", ".", "." ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${AWS_REGION}",
+        "title": "Pod Resource Utilization",
+        "period": 300,
+        "stat": "Average",
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 100
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 12,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "metrics": [
+          [ "ContainerInsights", "node_cpu_utilization", "ClusterName", "${CLUSTER_NAME}" ],
+          [ ".", "node_memory_utilization", ".", "." ],
+          [ ".", "node_filesystem_utilization", ".", "." ]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "${AWS_REGION}",
+        "title": "Node Resource Utilization",
+        "period": 300,
+        "stat": "Average",
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 100
+          }
+        }
+      }
+    }
+  ]
+}

@@ -32,7 +32,7 @@ grafana:
   additionalDataSources:
     - name: webstore-metrics
       type: prometheus
-      url: http://otel-demo-prometheus-server.otel-demo:9090
+      url: http://prometheus.otel-demo:9090
       access: proxy
       isDefault: false
 

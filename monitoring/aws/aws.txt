@@ -1,0 +1,76 @@
+AWS-backed Health Check Approach (for Gremlin Status Checks)
+
+Goal
+- Provide an HTTP(S) URL that returns JSON we can parse in Gremlin status checks to detect errors/health for a host or service (similar to Dynatrace flow).
+
+Recommended Architecture
+- API Gateway (public HTTP API)
+- Lambda function (Node.js or Python) with IAM role
+- Data sources: CloudWatch (alarms, logs), EC2 instance status, optional AWS Health
+- Gremlin calls the API Gateway URL; header-based auth (API key or Basic) avoids SigV4.
+
+Endpoints (Examples)
+1) EC2 Instance Status
+   GET /ec2/instance-status?instanceId=i-0123456789abcdef0
+   Response:
+   {
+     "instanceId": "i-0123456789abcdef0",
+     "systemStatusOk": true,
+     "instanceStatusOk": true,
+     "failingChecksCount": 0,
+     "timestamp": "2025-09-09T13:40:00Z"
+   }
+   Gremlin predicate: .systemStatusOk == "true" AND .instanceStatusOk == "true"
+
+2) CloudWatch Alarms Summary
+   GET /cloudwatch/alarms?prefix=new-script
+   Response:
+   {
+     "alarmsInAlarm": 0,
+     "alarmsInOk": 5,
+     "alarmsInInsufficientData": 0,
+     "timestamp": "2025-09-09T13:40:00Z"
+   }
+   Gremlin predicate: .alarmsInAlarm == "0"
+
+3) CloudWatch Logs Errors (last N minutes)
+   GET /logs/errors?logGroup=/aws/eks/otel-demo/application&filter=ERROR&minutes=5&dimension=host:new-script
+   Response:
+   {
+     "totalErrors": 0,
+     "topErrorMessages": [],
+     "windowMinutes": 5,
+     "timestamp": "2025-09-09T13:40:00Z"
+   }
+   Gremlin predicate: .totalErrors == "0"
+
+4) AWS Health Events (optional)
+   GET /health/events?service=EC2
+   Response:
+   {
+     "activeEvents": 0,
+     "events": [],
+     "timestamp": "2025-09-09T13:40:00Z"
+   }
+   Gremlin predicate: .activeEvents == "0"
+
+Auth Pattern for Gremlin Integration
+- Use API Gateway API key (header: x-api-key: <key>) or Basic Auth header via authorizer.
+- Create a CUSTOM integration in Gremlin referencing base URL and header.
+- Status checks hit specific paths; evaluationConfiguration.okStatusCodes = [200].
+
+IAM (Lambda execution role minimal)
+- ec2:DescribeInstanceStatus
+- cloudwatch:DescribeAlarms
+- logs:StartQuery, logs:GetQueryResults
+- health:DescribeEvents (optional)
+
+Why this path
+- No SigV4 from Gremlin; credentials stay in AWS.
+- Flexible; easily extend for service-specific checks.
+- Returns normalized JSON tailored for Gremlin responseBodyEvaluation.
+
+Next Steps
+- Implement Lambda + API Gateway via SAM or CDK.
+- Output API URL and API key.
+- Create Gremlin integration and status checks pointing to the new endpoints.

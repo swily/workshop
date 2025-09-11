@@ -1,4 +1,17 @@
 #!/bin/bash -e
+# ---------------------------------------------------------------------------
+# DEPRECATION NOTICE
+# This script is part of the legacy monitoring setup. The modern workflow
+# uses the modular orchestrator and libraries:
+#   - workshop.sh (main entry)
+#   - lib/monitoring.sh (Grafana/Prometheus + vendor setups)
+#   - scripts/operations/* (operations)
+# Please prefer running:
+#   ./workshop.sh --action build_new --cluster-name <name>
+# or
+#   ./workshop.sh --action deploy_existing --cluster-name <name>
+# ---------------------------------------------------------------------------
+echo "[DEPRECATED] monitoring/setup_monitoring.sh: Use workshop.sh + lib/monitoring.sh instead." >&2
 
 # Master Monitoring Setup Script
 # This script orchestrates the installation of monitoring tools in the workshop environment
@@ -39,11 +52,13 @@ show_help() {
   echo "  -p, --prometheus-only      Install only Prometheus stack"
   echo "  -d, --dynatrace            Install Dynatrace"
   echo "  -n, --newrelic             Install New Relic"
+  echo "  -f, --grafana              Setup Grafana health checks"
   echo "  -g, --datadog              Install DataDog (placeholder)"
   echo "  -a, --all                  Install all monitoring tools"
   echo "  -s, --status               Show status of monitoring installations"
   echo "  -r, --remove               Remove all monitoring installations"
   echo "  --no-health-checks         Skip setting up health checks"
+  echo "  --create-gremlin-checks    Create Gremlin health checks after platform setup"
   echo ""
   echo "Examples:"
   echo "  $0 --prometheus-only       # Install only Prometheus"
@@ -54,92 +69,22 @@ show_help() {
   echo "  $0 --no-health-checks      # Skip setting up health checks"
 }
 
-# Function to check monitoring status
+# Function to check monitoring status (silent unless errors)
 check_status() {
-  section "Checking Monitoring Status"
+  # Only report errors, suppress normal status output
+  local errors_found=false
   
-  # Check Prometheus
-  echo -e "${BLUE}Prometheus:${NC}"
-  if kubectl get namespace monitoring &>/dev/null; then
-    if kubectl get deployment -n monitoring prometheus-operator-kube-p-operator &>/dev/null; then
-      echo -e "  ${GREEN}✅ Prometheus is installed${NC}"
-      echo -e "  Pods in monitoring namespace:"
-      kubectl get pods -n monitoring | grep -E 'prometheus|grafana' | head -5
-      if [ $(kubectl get pods -n monitoring | grep -E 'prometheus|grafana' | wc -l) -gt 5 ]; then
-        echo -e "  ${YELLOW}...and more pods not shown${NC}"
-      fi
-      
-      # Check Grafana health check
-      echo -e "\n  ${BLUE}Grafana Health Check:${NC}"
-      if kubectl get configmap -n monitoring grafana-health-check-status &>/dev/null; then
-        echo -e "  ${GREEN}✅ Grafana health check is configured${NC}"
-      else
-        echo -e "  ${YELLOW}⚠️ Grafana health check is not configured${NC}"
-      fi
-    else
-      echo -e "  ${YELLOW}⚠️ Monitoring namespace exists but Prometheus is not installed${NC}"
+  # Silent checks - only report if critical errors found
+  if ! kubectl get namespace monitoring &>/dev/null; then
+    if [ "$INSTALL_PROMETHEUS" = true ]; then
+      echo -e "${RED}Error: Prometheus installation failed - monitoring namespace not found${NC}"
+      errors_found=true
     fi
-  else
-    echo -e "  ${RED}❌ Prometheus is not installed (monitoring namespace not found)${NC}"
   fi
   
-  # Check Dynatrace
-  echo -e "\n${BLUE}Dynatrace:${NC}"
-  if kubectl get namespace dynatrace &>/dev/null; then
-    if kubectl get deployment -n dynatrace dynatrace-operator &>/dev/null; then
-      echo -e "  ${GREEN}✅ Dynatrace is installed${NC}"
-      echo -e "  Pods in dynatrace namespace:"
-      kubectl get pods -n dynatrace | head -5
-      if [ $(kubectl get pods -n dynatrace | wc -l) -gt 5 ]; then
-        echo -e "  ${YELLOW}...and more pods not shown${NC}"
-      fi
-    else
-      echo -e "  ${YELLOW}⚠️ Dynatrace namespace exists but Dynatrace Operator is not installed${NC}"
-    fi
-  else
-    echo -e "  ${RED}❌ Dynatrace is not installed (dynatrace namespace not found)${NC}"
-  fi
-  
-  # Check New Relic
-  echo -e "\n${BLUE}New Relic:${NC}"
-  if kubectl get namespace newrelic &>/dev/null; then
-    if kubectl get pods -n newrelic -l app.kubernetes.io/name=newrelic-bundle &>/dev/null; then
-      echo -e "  ${GREEN}✅ New Relic is installed${NC}"
-      echo -e "  Pods in newrelic namespace:"
-      kubectl get pods -n newrelic | head -5
-      if [ $(kubectl get pods -n newrelic | wc -l) -gt 5 ]; then
-        echo -e "  ${YELLOW}...and more pods not shown${NC}"
-      fi
-      
-      # Check New Relic health check
-      echo -e "\n  ${BLUE}New Relic Health Check:${NC}"
-      if kubectl get configmap -n newrelic newrelic-health-check-status &>/dev/null; then
-        echo -e "  ${GREEN}✅ New Relic health check is configured${NC}"
-      else
-        echo -e "  ${YELLOW}⚠️ New Relic health check is not configured${NC}"
-      fi
-    else
-      echo -e "  ${YELLOW}⚠️ New Relic namespace exists but New Relic bundle is not installed${NC}"
-    fi
-  else
-    echo -e "  ${RED}❌ New Relic is not installed (newrelic namespace not found)${NC}"
-  fi
-  
-  # Check DataDog
-  echo -e "\n${BLUE}DataDog:${NC}"
-  if kubectl get namespace datadog &>/dev/null; then
-    if kubectl get pods -n datadog -l app=datadog &>/dev/null; then
-      echo -e "  ${GREEN}✅ DataDog is installed${NC}"
-      echo -e "  Pods in datadog namespace:"
-      kubectl get pods -n datadog | head -5
-      if [ $(kubectl get pods -n datadog | wc -l) -gt 5 ]; then
-        echo -e "  ${YELLOW}...and more pods not shown${NC}"
-      fi
-    else
-      echo -e "  ${YELLOW}⚠️ DataDog namespace exists but DataDog agent is not installed${NC}"
-    fi
-  else
-    echo -e "  ${RED}❌ DataDog is not installed (datadog namespace not found)${NC}"
+  # Only show error summary if errors were found
+  if [ "$errors_found" = false ]; then
+    return 0  # Silent success
   fi
 }
 
@@ -203,10 +148,12 @@ done
 INSTALL_PROMETHEUS=false
 INSTALL_DYNATRACE=false
 INSTALL_NEWRELIC=false
+INSTALL_GRAFANA=false
 INSTALL_DATADOG=false
 CHECK_STATUS=false
 REMOVE_ALL=false
 SETUP_HEALTH_CHECKS=true
+CREATE_GREMLIN_CHECKS=false
 
 while [[ $# -gt 0 ]]; do
   key="$1"
@@ -234,6 +181,11 @@ while [[ $# -gt 0 ]]; do
       INSTALL_NEWRELIC=true
       shift
       ;;
+    -f|--grafana)
+      INSTALL_PROMETHEUS=true
+      INSTALL_GRAFANA=true
+      shift
+      ;;
     -g|--datadog)
       INSTALL_PROMETHEUS=true
       INSTALL_DATADOG=true
@@ -243,6 +195,7 @@ while [[ $# -gt 0 ]]; do
       INSTALL_PROMETHEUS=true
       INSTALL_DYNATRACE=true
       INSTALL_NEWRELIC=true
+      INSTALL_GRAFANA=true
       INSTALL_DATADOG=true
       shift
       ;;
@@ -258,8 +211,12 @@ while [[ $# -gt 0 ]]; do
       SETUP_HEALTH_CHECKS=false
       shift
       ;;
+    --create-gremlin-checks)
+      CREATE_GREMLIN_CHECKS=true
+      shift
+      ;;
     *)
-      echo -e "${RED}Unknown option: $key${NC}"
+      echo "Unknown option: $1"
       show_help
       exit 1
       ;;
@@ -343,46 +300,7 @@ if [ "$INSTALL_PROMETHEUS" = true ]; then
   section "Installing Prometheus"
   "${SCRIPT_DIR}/prometheus/install/install.sh"
   
-  # Setup Grafana health check if enabled
-  if [ "$SETUP_HEALTH_CHECKS" = true ]; then
-    section "Setting up Grafana health check"
-    if [ -f "${SCRIPT_DIR}/grafana/health_check/setup_health_check.sh" ]; then
-      # Get Grafana admin password
-      GRAFANA_ADMIN_PASSWORD=$(kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 --decode)
-      if [ -n "$GRAFANA_ADMIN_PASSWORD" ]; then
-        # Port-forward Grafana (in background)
-        echo "Starting port-forward for Grafana..."
-        kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80 &
-        GRAFANA_PF_PID=$!
-        
-        # Wait for port-forward to be ready
-        echo "Waiting for port-forward to be ready..."
-        sleep 5
-        
-        # Run health check setup
-        echo "Running Grafana health check setup..."
-        "${SCRIPT_DIR}/grafana/health_check/setup_health_check.sh" \
-          --grafana-url "http://localhost:3000" \
-          --api-key "admin:${GRAFANA_ADMIN_PASSWORD}" \
-          --namespace "otel-demo" \
-          --service "frontend" \
-          --endpoint "/health"
-          
-        # Create a ConfigMap to track health check status
-        kubectl create configmap -n monitoring grafana-health-check-status \
-          --from-literal=configured=true \
-          --from-literal=timestamp="$(date '+%Y-%m-%d %H:%M:%S')" \
-          --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Kill port-forward
-        kill $GRAFANA_PF_PID 2>/dev/null || true
-      else
-        echo -e "${YELLOW}⚠️ Could not retrieve Grafana admin password. Skipping health check setup.${NC}"
-      fi
-    else
-      echo -e "${YELLOW}⚠️ Grafana health check setup script not found. Skipping.${NC}"
-    fi
-  fi
+
 fi
 
 # Install Dynatrace if requested
@@ -395,35 +313,12 @@ fi
 if [ "$INSTALL_NEWRELIC" = true ]; then
   section "Installing New Relic"
   "${SCRIPT_DIR}/newrelic/install/install.sh"
-  
-  # Setup New Relic health check if enabled
-  if [ "$SETUP_HEALTH_CHECKS" = true ]; then
-    section "Setting up New Relic health check"
-    if [ -f "${SCRIPT_DIR}/newrelic/health_check/setup_health_check.sh" ]; then
-      # Get New Relic API key from secret
-      NEW_RELIC_API_KEY=$(kubectl get secret -n newrelic newrelic-license-key -o jsonpath="{.data.license-key}" | base64 --decode 2>/dev/null)
-      
-      if [ -n "$NEW_RELIC_API_KEY" ]; then
-        # Run health check setup
-        echo "Running New Relic health check setup..."
-        "${SCRIPT_DIR}/newrelic/health_check/setup_health_check.sh" \
-          --api-key "$NEW_RELIC_API_KEY" \
-          --namespace "otel-demo" \
-          --service "frontend" \
-          --endpoint "/health"
-          
-        # Create a ConfigMap to track health check status
-        kubectl create configmap -n newrelic newrelic-health-check-status \
-          --from-literal=configured=true \
-          --from-literal=timestamp="$(date '+%Y-%m-%d %H:%M:%S')" \
-          --dry-run=client -o yaml | kubectl apply -f -
-      else
-        echo -e "${YELLOW}⚠️ Could not retrieve New Relic API key. Skipping health check setup.${NC}"
-      fi
-    else
-      echo -e "${YELLOW}⚠️ New Relic health check setup script not found. Skipping.${NC}"
-    fi
-  fi
+fi
+
+# Setup Grafana health checks if requested
+if [ "$INSTALL_GRAFANA" = true ]; then
+  section "Setting up Grafana Health Checks"
+  "${SCRIPT_DIR}/grafana/install/install.sh"
 fi
 
 # Install DataDog if requested
@@ -432,12 +327,38 @@ if [ "$INSTALL_DATADOG" = true ]; then
   "${SCRIPT_DIR}/datadog/install/install.sh"
 fi
 
-# Final status check
-if [ "$INSTALL_PROMETHEUS" = true ] || [ "$INSTALL_DYNATRACE" = true ] || [ "$INSTALL_NEWRELIC" = true ] || [ "$INSTALL_DATADOG" = true ]; then
+# Note: Gremlin health checks will be created after LoadBalancer provisioning
+# This prevents premature health check creation before endpoints are ready
+
+# Final status check and summary
+if [ "$INSTALL_PROMETHEUS" = true ] || [ "$INSTALL_DYNATRACE" = true ] || [ "$INSTALL_NEWRELIC" = true ] || [ "$INSTALL_GRAFANA" = true ] || [ "$INSTALL_DATADOG" = true ]; then
   section "Installation Complete"
   echo -e "${GREEN}Monitoring tools have been installed.${NC}"
   echo -e "${YELLOW}Checking final status...${NC}"
   check_status
+  
+  # Platform verification URLs will be shown at the end of the workshop
+  echo -e "${GREEN}✅ Monitoring platforms setup complete${NC}"
+  
+  if [ "$INSTALL_DYNATRACE" = true ]; then
+    echo -e "${YELLOW}Dynatrace:${NC}"
+    echo -e "  https://\${DYNATRACE_INSTANCE_ID}.live.dynatrace.com"
+    echo -e "  Problems API: https://\${DYNATRACE_INSTANCE_ID}.live.dynatrace.com/api/v2/problems"
+  fi
+  
+  if [ "$INSTALL_NEWRELIC" = true ]; then
+    echo -e "${YELLOW}New Relic:${NC}"
+    echo -e "  https://one.newrelic.com"
+    echo -e "  Alert Conditions API: https://api.newrelic.com/v2/alerts_nrql_conditions.json"
+  fi
+  
+  if [ "$INSTALL_GRAFANA" = true ]; then
+    echo -e "${YELLOW}Grafana Health Checks:${NC}"
+    echo -e "  Alert API: http://localhost:3000/api/alertmanager/grafana/api/v2/alerts"
+    echo -e "  Alert Rules: http://localhost:3000/alerting/list"
+  fi
+  
+  # Setup complete - health checks will be handled separately after LoadBalancer provisioning
 fi
 
 exit 0

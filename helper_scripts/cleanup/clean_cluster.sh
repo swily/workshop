@@ -10,62 +10,75 @@ fi
 echo "Updating kubeconfig..."
 eksctl utils write-kubeconfig --cluster ${CLUSTER_NAME}
 
-# Function to delete namespace and wait for completion
-delete_namespace() {
+echo "🧽 Cleaning Helm resources..."
+
+# Function to forcefully clean up a namespace
+clean_namespace() {
     local ns=$1
-    echo "Cleaning up namespace: $ns"
+    # Silent cleanup - only show errors
     
-    # Delete any finalizers from resources in the namespace
-    echo "Removing finalizers from resources in $ns namespace..."
+    # Force delete all pods in the namespace (silent)
+    kubectl get pods -n $ns --no-headers | awk '{print $1}' | xargs -r kubectl delete pod -n $ns --force --grace-period=0 >/dev/null 2>&1 || true
+    
+    # Force delete all other resources (silent)
+    kubectl delete all --all -n $ns --force --grace-period=0 >/dev/null 2>&1 || true
+    
+    # Delete any finalizers from remaining resources (silent)
     for type in deployment statefulset daemonset service pod pvc configmap secret; do
-        kubectl get $type -n $ns -o json | jq '.items[] | select(.metadata.finalizers != null) | .metadata.name' 2>/dev/null | xargs -r -I{} kubectl patch $type -n $ns {} -p '{"metadata":{"finalizers":[]}}' --type=merge || true
+        kubectl get $type -n $ns -o json 2>/dev/null | jq '.items[] | select(.metadata.finalizers != null) | .metadata.name' 2>/dev/null | xargs -r -I{} kubectl patch $type -n $ns {} -p '{"metadata":{"finalizers":[]}}' --type=merge >/dev/null 2>&1 || true
     done
     
     # Force delete the namespace
-    kubectl delete namespace $ns --force --grace-period=0 || true
+    kubectl delete namespace $ns --force --grace-period=0 >/dev/null 2>&1 || true
     
-    # Wait for namespace to be fully deleted
-    while kubectl get namespace $ns >/dev/null 2>&1; do
-        echo "Waiting for $ns namespace to be deleted..."
-        sleep 2
+    # If namespace is still stuck, patch out finalizers (silent)
+    if kubectl get namespace $ns >/dev/null 2>&1; then
+        kubectl patch namespace $ns -p '{"metadata":{"finalizers":[]}}' --type=merge >/dev/null 2>&1 || true
+    fi
+    
+    # Wait for namespace to be fully deleted (with timeout)
+    local timeout=60
+    local count=0
+    while kubectl get namespace $ns >/dev/null 2>&1 && [ $count -lt $timeout ]; do
+        sleep 1
+        count=$((count + 1))
     done
 }
 
-# Clean up Helm releases first
-echo "Cleaning up Helm releases..."
+# Clean up Helm releases first (silent)
 for ns in otel-demo monitoring gremlin; do
     # List and remove all Helm releases in the namespace
-    echo "Cleaning up Helm releases in $ns namespace..."
-    helm ls -n $ns -q | xargs -r helm uninstall -n $ns 2>/dev/null || true
+    helm list -n $ns -q | xargs -r helm uninstall -n $ns >/dev/null 2>&1 || true
 
-    # Clean up Helm secrets
-    echo "Cleaning up Helm secrets in $ns namespace..."
-    kubectl get secrets -n $ns -o json | jq -r '.items[] | select(.metadata.annotations["meta.helm.sh/release-name"]) | .metadata.name' | xargs -r kubectl delete secrets -n $ns 2>/dev/null || true
+    # Clean up Helm secrets (silent)
+    kubectl get secrets -n $ns | grep helm | awk '{print $1}' | xargs -r kubectl delete secret -n $ns >/dev/null 2>&1 || true
 
-    # Clean up Helm configmaps
-    echo "Cleaning up Helm configmaps in $ns namespace..."
-    kubectl get configmaps -n $ns -o json | jq -r '.items[] | select(.metadata.annotations["meta.helm.sh/release-name"]) | .metadata.name' | xargs -r kubectl delete configmaps -n $ns 2>/dev/null || true
+    # Clean up Helm configmaps (silent)
+    kubectl get configmaps -n $ns | grep helm | awk '{print $1}' | xargs -r kubectl delete configmap -n $ns >/dev/null 2>&1 || true
 done
+
+# Clean up legacy patches that may persist across deployments
+echo "🧽 Cleaning legacy patches..."
+# Remove any deployments that might have legacy patch configurations
+kubectl delete deployment cart -n otel-demo --ignore-not-found=true >/dev/null 2>&1 || true
 
 # Delete namespaces and wait for completion
+echo "🧽 Cleaning namespaces..."
 for ns in otel-demo monitoring gremlin; do
-    delete_namespace $ns
+    clean_namespace $ns
 done
 
-# Delete Prometheus CRDs
-echo "Removing Prometheus CRDs..."
+# Delete Prometheus CRDs (silent)
 PROM_CRDS="alertmanagerconfigs.monitoring.coreos.com alertmanagers.monitoring.coreos.com podmonitors.monitoring.coreos.com probes.monitoring.coreos.com prometheusagents.monitoring.coreos.com prometheuses.monitoring.coreos.com prometheusrules.monitoring.coreos.com scrapeconfigs.monitoring.coreos.com servicemonitors.monitoring.coreos.com thanosrulers.monitoring.coreos.com"
 
 for crd in $PROM_CRDS; do
-    kubectl delete crd $crd --force --grace-period=0 2>/dev/null || true
+    kubectl delete crd $crd --force --grace-period=0 >/dev/null 2>&1 || true
 done
 
-# Wait for CRDs to be fully deleted
-echo "Waiting for Prometheus CRDs to be fully deleted..."
+# Wait for CRDs to be fully deleted (silent)
 for crd in $PROM_CRDS; do
     while kubectl get crd $crd >/dev/null 2>&1; do
-        echo "Waiting for $crd to be deleted..."
-        sleep 2
+        sleep 1
     done
 done
 

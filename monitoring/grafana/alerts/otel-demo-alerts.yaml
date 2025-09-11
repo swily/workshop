@@ -1,0 +1,188 @@
+apiVersion: 1
+
+groups:
+  - name: otel-demo-service-health
+    folder: OpenTelemetry Demo
+    interval: 30s
+    rules:
+      - uid: otel-demo-service-down
+        title: "OpenTelemetry Demo Service Down"
+        condition: C
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: up{namespace="otel-demo"}
+              instant: false
+              range: true
+              intervalMs: 15000
+          - refId: B
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0, 0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B < 1
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          description: "OpenTelemetry Demo service {{ $labels.job }} in namespace {{ $labels.namespace }} is down"
+          runbook_url: ""
+          summary: "OpenTelemetry Demo service is not responding"
+        labels:
+          severity: critical
+          service: "{{ $labels.job }}"
+          namespace: "{{ $labels.namespace }}"
+
+  - name: otel-demo-collector-health
+    folder: OpenTelemetry Demo
+    interval: 30s
+    rules:
+      - uid: otel-collector-down
+        title: "OpenTelemetry Collector Down"
+        condition: C
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: up{job="otel-collector", namespace="otel-demo"}
+              instant: false
+              range: true
+              intervalMs: 15000
+          - refId: B
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: B < 1
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          description: "OpenTelemetry Collector in otel-demo namespace is down"
+          summary: "Critical: OpenTelemetry Collector is not collecting metrics"
+        labels:
+          severity: critical
+          component: otel-collector
+
+  - name: otel-demo-load-generator
+    folder: OpenTelemetry Demo
+    interval: 30s
+    rules:
+      - uid: load-generator-down
+        title: "Load Generator Down"
+        condition: C
+        data:
+          - refId: A
+            queryType: ""
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: up{job="load-generator", namespace="otel-demo"}
+              instant: false
+              range: true
+              intervalMs: 15000
+          - refId: B
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            queryType: ""
+            relativeTimeRange:
+              from: 0
+              to: 0
+            datasourceUid: __expr__
+            model:
+              expression: B < 1
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          description: "Load generator is down - no traffic being generated for otel-demo"
+          summary: "Load generator stopped - metrics may not be meaningful"
+        labels:
+          severity: warning
+          component: load-generator

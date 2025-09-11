@@ -1,4 +1,7 @@
 prometheus:
+  fullnameOverride: prom
+  service:
+    name: prom
   prometheusSpec:
     serviceMonitorSelectorNilUsesHelmValues: true
     podMonitorSelectorNilUsesHelmValues: true
@@ -31,10 +34,11 @@ prometheus:
             action: drop
 
 grafana:
+  fullnameOverride: prom-grafana
   additionalDataSources:
     - name: webstore-metrics
       type: prometheus
-      url: http://otel-demo-prometheus-server.otel-demo:9090
+      url: http://prometheus.otel-demo:9090
       access: proxy
       isDefault: false
 
@@ -57,4 +61,35 @@ grafana:
         # This will mount the dashboards from the demo into Grafana
         configMapRef: otel-demo-dashboards
         enabled: true
+
+# Rename other kube-prometheus-stack components
+alertmanager:
+  fullnameOverride: prom-alertmanager
+
+# Override default rule names
+defaultRules:
+  rules:
+    alertmanager: true
+  labels:
+    release: prometheus
+  annotations: {}
+  additionalRuleLabels: {}
+  # Override the default rule group names
+  create: true
+  disabled: {}
+  # Custom rule group name overrides
+  runbookUrl: "https://runbooks.prometheus-operator.dev/runbooks"
+  alertmanagerRules:
+    create: true
+    # This will create rules with name "prom-alertmanager.rules" instead of default
+    name: "prom-alertmanager.rules"
+
+prometheusOperator:
+  fullnameOverride: prom-operator
+
+kube-state-metrics:
+  fullnameOverride: prometheus-kube-state-metrics
+
+prometheus-node-exporter:
+  fullnameOverride: prometheus-node-exporter
 

@@ -1,0 +1,62 @@
+groups:
+  - name: otel-demo-alerts
+    rules:
+      # Service Down Alert
+      - alert: ServiceDown
+        expr: up{job="otel-demo"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: "Service {{ $labels.instance }} has been down for more than 1 minute."
+
+      # High Error Rate Alert
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate on {{ $labels.instance }}"
+          description: "Error rate is {{ $value }} errors per second on {{ $labels.instance }}"
+
+      # Low Service Count Alert
+      - alert: LowServiceCount
+        expr: sum(up{job="otel-demo"}) < 8
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Not enough otel-demo services running"
+          description: "Only {{ $value }} otel-demo services are running, expected at least 8"
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: container_memory_usage_bytes{pod=~"otel-demo-.*"} / container_spec_memory_limit_bytes > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.pod }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} on pod {{ $labels.pod }}"
+
+      # High CPU Usage Alert
+      - alert: HighCPUUsage
+        expr: rate(container_cpu_usage_seconds_total{pod=~"otel-demo-.*"}[5m]) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.pod }}"
+          description: "CPU usage is {{ $value | humanizePercentage }} on pod {{ $labels.pod }}"
+
+  - name: otel-demo-recording-rules
+    rules:
+      # Recording rule for request rate
+      - record: job:http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job)
+        
+      # Recording rule for error rate
+      - record: job:http_errors:rate5m
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)
