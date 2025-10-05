@@ -14,8 +14,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Configuration
-GRAFANA_URL="http://current-workshop-grafana.gremlinpoc.com"
-FRONTEND_URL="http://current-workshop-frontend.gremlinpoc.com"
+CLUSTER_NAME="${CLUSTER_NAME:-current-workshop}"
+GRAFANA_URL="http://${CLUSTER_NAME}-grafana.gremlinpoc.com"
+FRONTEND_URL="http://${CLUSTER_NAME}-frontend.gremlinpoc.com"
 INTERVAL_MINUTES=15
 TIMEOUT_SECONDS=30
 

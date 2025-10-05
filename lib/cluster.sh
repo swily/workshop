@@ -281,7 +281,7 @@ install_prometheus_operator() {
         --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
         --set prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false \
         --set prometheus.prometheusSpec.retention=30d \
-        --set grafana.adminPassword=admin123 \
+        --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD:-admin123} \
         --set grafana.persistence.enabled=false
     
     # Wait for Prometheus and Grafana to be ready

@@ -16,8 +16,8 @@ NAMESPACE="gremlin"
 INSTALL_TYPE="standard" # standard, pni, or both
 DRY_RUN=false
 ISTIO_INTEGRATION=false
-AUTO_TAG=false
-NAMESPACES_TO_TAG=""
+AUTO_TAG=true
+NAMESPACES_TO_TAG="otel-demo"
 
 # Gremlin credentials - must be provided via environment or CLI
 GREMLIN_TEAM_ID="${GREMLIN_TEAM_ID:-}"
@@ -32,9 +32,10 @@ section() {
 
 # Show help information
 show_help() {
-  help_header \
-    "" \
-    "Unified script to install Gremlin chaos engineering platform on EKS clusters.\nSupports both standard Gremlin agent and Private Network Integration (PNI)."
+  echo ""
+  echo "Unified script to install Gremlin chaos engineering platform on EKS clusters."
+  echo "Supports both standard Gremlin agent and Private Network Integration (PNI)."
+  echo ""
   cat << EOF
 
 OPTIONS:
@@ -47,16 +48,18 @@ OPTIONS:
   --api-key KEY               Specify the Gremlin API key (for PNI)
   --cluster-id ID             Specify a custom Gremlin cluster ID (defaults to cluster name)
   -i, --istio                 Enable Istio integration for Gremlin
-  -a, --auto-tag [NS]         Automatically tag services in specified namespaces
+  --disable-auto-tag          Disable automatic service tagging (enabled by default)
+  --auto-tag-namespace NS     Override default namespace for auto-tagging (default: otel-demo)
   --dry-run                   Show what would be installed without actually installing
 EOF
   echo ""
   cat << 'EOF'
 EXAMPLES:
-  ./scripts/gremlin_install.sh -n my-cluster                           # Install standard Gremlin agent
+  ./scripts/gremlin_install.sh -n my-cluster                           # Install with auto-tag enabled (default)
+  ./scripts/gremlin_install.sh -n my-cluster --disable-auto-tag        # Install without auto-tagging
   ./scripts/gremlin_install.sh -n my-cluster -t pni                    # Install PNI agent only
   ./scripts/gremlin_install.sh -n my-cluster -t both                   # Install both standard and PNI
-  ./scripts/gremlin_install.sh -n my-cluster -i -a "otel-demo"         # Install with Istio integration and auto-tag
+  ./scripts/gremlin_install.sh -n my-cluster --auto-tag-namespace "my-ns" # Auto-tag custom namespace
   ./scripts/gremlin_install.sh --dry-run                               # Preview installation commands
 
 WHAT THIS INSTALLS:
@@ -70,7 +73,7 @@ PREREQUISITES:
   - Helm 3.x installed
   - Cluster admin permissions
 EOF
-  help_footer
+  echo ""
 }
 
 # Parse command line arguments
@@ -117,14 +120,13 @@ while [[ $# -gt 0 ]]; do
       ISTIO_INTEGRATION=true
       shift
       ;;
-    -a|--auto-tag)
-      AUTO_TAG=true
-      if [[ "$2" != -* && ! -z "$2" ]]; then
-        NAMESPACES_TO_TAG="$2"
-        shift 2
-      else
-        shift
-      fi
+    --disable-auto-tag)
+      AUTO_TAG=false
+      shift
+      ;;
+    --auto-tag-namespace)
+      NAMESPACES_TO_TAG="$2"
+      shift 2
       ;;
     --dry-run)
       DRY_RUN=true
@@ -201,22 +203,18 @@ install_standard_gremlin() {
   # Add Gremlin Helm repo
   ensure_helm_repo "gremlin" "https://helm.gremlin.com"
   
-  # Create the secret
-  log_info "Creating Gremlin team secret..."
-  execute_command "kubectl create secret generic gremlin-team-cert \
-    --namespace '$NAMESPACE' \
-    --from-literal=GREMLIN_TEAM_ID='$GREMLIN_TEAM_ID' \
-    --from-literal=GREMLIN_TEAM_SECRET='$GREMLIN_TEAM_SECRET' \
-    --dry-run=client -o yaml | kubectl apply -f -"
-  
-  # Install Gremlin using Helm
-  log_info "Installing Gremlin agent..."
+  # Install/upgrade Gremlin using Helm with managed secret (Option A)
+  log_info "Installing Gremlin agent with Helm-managed secret (Option A)..."
   execute_command "helm upgrade --install gremlin gremlin/gremlin \
     --namespace '$NAMESPACE' \
     --set gremlin.teamID='$GREMLIN_TEAM_ID' \
     --set gremlin.clusterID='$GREMLIN_CLUSTER_ID' \
-    --set gremlin.secret.managed=false \
-    --set gremlin.secret.type=secret"
+    --set gremlin.secret.managed=true \
+    --set gremlin.secret.type=secret \
+    --set gremlin.secret.teamID='$GREMLIN_TEAM_ID' \
+    --set gremlin.secret.teamSecret='$GREMLIN_TEAM_SECRET' \
+    --set chao.create=true \
+    --set gremlin.features.discoverDestinationService.enabled=true"
   
   log_success "Standard Gremlin agent installed successfully"
 }
@@ -271,65 +269,6 @@ apply_istio_integration() {
   fi
 }
 
-# Function to annotate services for Gremlin service discovery
-annotate_services_for_gremlin() {
-  local namespace="$1"
-  section "Annotating Services in Namespace: $namespace"
-  
-  if is_dry_run; then
-    log_warning "[DRY RUN] Would annotate services in namespace: $namespace"
-    return 0
-  fi
-  
-  # Get all services in the namespace
-  local services=$(kubectl get services -n "$namespace" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null)
-  
-  if [ -z "$services" ]; then
-    echo -e "${YELLOW}⚠️  No services found in namespace: $namespace${NC}"
-    return 0
-  fi
-  
-  for service in $services; do
-    echo "Annotating service '$service' in namespace '$namespace'..."
-    
-    # Check if annotation already exists
-    local existing_annotation=$(kubectl get service "$service" -n "$namespace" -o jsonpath='{.metadata.annotations.gremlin\.com/service-id}' 2>/dev/null)
-    
-    if [ -z "$existing_annotation" ]; then
-      # Add the annotation using the service name as the service-id
-      kubectl annotate service "$service" -n "$namespace" "gremlin.com/service-id=$service" --overwrite
-      echo -e "${GREEN}✅ Added Gremlin service-id annotation to service '$service'${NC}"
-    else
-      echo -e "${BLUE}ℹ️  Service '$service' already has Gremlin service-id annotation: '$existing_annotation'${NC}"
-    fi
-  done
-}
-
-# Function to handle auto-tagging
-handle_auto_tagging() {
-  if [ "$AUTO_TAG" = true ]; then
-    if [ -z "$NAMESPACES_TO_TAG" ]; then
-      section "Service Tagging Configuration"
-      echo "Auto-tagging enabled but no namespaces specified."
-      echo "Available namespaces:"
-      kubectl get namespaces -o name | sed 's|namespace/||' | grep -v "kube-"
-      echo -e "\nEnter namespaces separated by spaces (default: otel-demo):"
-      read -p "> " input_namespaces
-      
-      if [ -z "$input_namespaces" ]; then
-        NAMESPACES_TO_TAG="otel-demo"
-        echo "Using default namespace: otel-demo"
-      else
-        NAMESPACES_TO_TAG="$input_namespaces"
-      fi
-    fi
-    
-    # Annotate services in specified namespaces
-    for ns in $NAMESPACES_TO_TAG; do
-      annotate_services_for_gremlin "$ns"
-    done
-  fi
-}
 
 # Function to verify installation
 verify_installation() {
@@ -435,7 +374,6 @@ main() {
     apply_istio_integration
   fi
   
-  handle_auto_tagging
   verify_installation
   show_next_steps
   

@@ -47,20 +47,21 @@ APPLY_GREMLIN_ENHANCEMENTS=true
 
 # Function to collect workshop action
 collect_workshop_action() {
-    echo -e "${BLUE}What would you like to do?${NC}"
+    echo "What would you like to do?"
     echo ""
-    echo -e "${GREEN}1)${NC} 🏗️  Build new cluster from scratch & deploy everything"
-    echo -e "${GREEN}2)${NC} 📦 Deploy to existing cluster"  
-    echo -e "${GREEN}3)${NC} 🐒 Point cluster to different Gremlin team"
-    echo -e "${GREEN}4)${NC} 🧽 Cleanup/Delete cluster"
+    echo "1) Build new cluster from scratch & deploy everything"
+    echo "2) Deploy to existing cluster"
+    echo "3) Point cluster to different Gremlin team"
+    echo "4) Cleanup/Delete cluster"
     echo ""
     
     while true; do
-        read -p "Enter your choice (1-4): " choice
+        printf "Enter your choice (1-4): "
+        read choice </dev/tty
         case $choice in
             1) WORKSHOP_ACTION="build_new"; break ;;
             2) WORKSHOP_ACTION="deploy_existing"; break ;;
-            3) WORKSHOP_ACTION="run_gremlin_only"; break ;;
+            3) WORKSHOP_ACTION="gremlin_only"; break ;;
             4) WORKSHOP_ACTION="cleanup"; break ;;
             *) log_error "Invalid choice. Please enter 1-4." ;;
         esac
@@ -74,15 +75,20 @@ collect_cluster_info() {
     if [[ "$WORKSHOP_ACTION" == "build_new" || "$WORKSHOP_ACTION" == "clean_deploy" || "$WORKSHOP_ACTION" == "deploy_existing" || "$WORKSHOP_ACTION" == "run_gremlin_only" || "$WORKSHOP_ACTION" == "cleanup" ]]; then
         while [ -z "${CLUSTER_NAME}" ]; do
             if [ "$WORKSHOP_ACTION" == "build_new" ]; then
-                read -p "Enter new cluster name: " CLUSTER_NAME
+                printf "Enter new cluster name: "
+                read CLUSTER_NAME </dev/tty
             elif [ "$WORKSHOP_ACTION" == "clean_deploy" ]; then
-                read -p "Enter cluster name to clean and redeploy: " CLUSTER_NAME
+                printf "Enter cluster name to clean and redeploy: "
+                read CLUSTER_NAME </dev/tty
             elif [ "$WORKSHOP_ACTION" == "deploy_existing" ]; then
-                read -p "Enter existing cluster name to deploy to: " CLUSTER_NAME
-            elif [ "$WORKSHOP_ACTION" == "run_gremlin_only" ]; then
-                read -p "Enter existing cluster name for Gremlin setup: " CLUSTER_NAME
+                printf "Enter existing cluster name to deploy to: "
+                read CLUSTER_NAME </dev/tty
+            elif [ "$WORKSHOP_ACTION" == "gremlin_only" ]; then
+                printf "Enter existing cluster name for Gremlin setup: "
+                read CLUSTER_NAME </dev/tty
             elif [ "$WORKSHOP_ACTION" == "cleanup" ]; then
-                read -p "Enter cluster name to delete: " CLUSTER_NAME
+                printf "Enter cluster name to delete: "
+                read CLUSTER_NAME </dev/tty
             fi
         done
         export CLUSTER_NAME
@@ -98,7 +104,8 @@ collect_cluster_info() {
         AWS_REGION="${REGION}"
         log_success "Using REGION environment variable: ${AWS_REGION}"
     else
-        read -p "Enter AWS region [${AWS_REGION}]: " input_region
+        printf "Enter AWS region [${AWS_REGION}]: "
+        read input_region </dev/tty
         AWS_REGION=${input_region:-$AWS_REGION}
     fi
     export AWS_REGION
@@ -115,7 +122,8 @@ collect_gremlin_credentials() {
     if [ -z "${GREMLIN_TEAM_ID}" ]; then
         echo -e "${BLUE}Enter your Gremlin Team ID:${NC}"
         echo -e "${YELLOW}(Find this at: https://app.gremlin.com/settings/teams)${NC}"
-        read -p "Team ID [438c58ec-03db-47ac-8c58-ec03db67ac42]: " input_team_id
+        printf "Team ID [438c58ec-03db-47ac-8c58-ec03db67ac42]: "
+        read input_team_id </dev/tty
         GREMLIN_TEAM_ID=${input_team_id:-"438c58ec-03db-47ac-8c58-ec03db67ac42"}
     fi
     
@@ -123,7 +131,8 @@ collect_gremlin_credentials() {
     if [ -z "${GREMLIN_TEAM_SECRET}" ]; then
         echo -e "${BLUE}Enter your Gremlin Team Secret:${NC}"
         echo -e "${YELLOW}(Find this at: https://app.gremlin.com/settings/teams)${NC}"
-        read -p "Team Secret [680010a2-b4b7-4540-8010-a2b4b7b54031]: " input_team_secret
+        printf "Team Secret [680010a2-b4b7-4540-8010-a2b4b7b54031]: "
+        read input_team_secret </dev/tty
         GREMLIN_TEAM_SECRET=${input_team_secret:-"680010a2-b4b7-4540-8010-a2b4b7b54031"}
     fi
     
@@ -131,7 +140,8 @@ collect_gremlin_credentials() {
     if [ -z "${GREMLIN_API_KEY}" ]; then
         echo -e "${BLUE}Enter your Gremlin API Key (for health checks):${NC}"
         echo -e "${YELLOW}(Create at: https://app.gremlin.com/settings/api-keys)${NC}"
-        read -p "API Key [14bdb4c5b41e93955d4b0a32f79ddf93bac61cccd4ce59ed29b937fba2b970f7]: " input_api_key
+        printf "API Key [14bdb4c5b41e93955d4b0a32f79ddf93bac61cccd4ce59ed29b937fba2b970f7]: "
+        read input_api_key </dev/tty
         GREMLIN_API_KEY=${input_api_key:-"14bdb4c5b41e93955d4b0a32f79ddf93bac61cccd4ce59ed29b937fba2b970f7"}
     fi
     
@@ -157,7 +167,8 @@ collect_monitoring_platform() {
     echo ""
     
     while true; do
-        read -p "Enter your choice (1-6): " choice
+        printf "Enter your choice (1-6): "
+        read choice </dev/tty
         case $choice in
             1) MONITORING_PLATFORM="grafana"; break ;;
             2) MONITORING_PLATFORM="dynatrace"; break ;;
@@ -198,13 +209,15 @@ collect_dynatrace_credentials() {
     if [ -z "${DYNATRACE_API_TOKEN}" ]; then
         echo -e "${BLUE}Enter your Dynatrace API Token:${NC}"
         echo -e "${YELLOW}(Create at: https://[your-environment].dynatrace.com/ui/settings/integration/apikeys)${NC}"
-        read -p "API Token: " DYNATRACE_API_TOKEN
+        printf "API Token: "
+        read DYNATRACE_API_TOKEN </dev/tty
     fi
     
     if [ -z "${DYNATRACE_INSTANCE_ID}" ]; then
         echo -e "${BLUE}Enter your Dynatrace Instance ID:${NC}"
         echo -e "${YELLOW}(Format: abc12345 from https://abc12345.dynatrace.com)${NC}"
-        read -p "Instance ID: " DYNATRACE_INSTANCE_ID
+        printf "Instance ID: "
+        read DYNATRACE_INSTANCE_ID </dev/tty
     fi
     
     export DYNATRACE_API_TOKEN
@@ -218,7 +231,8 @@ collect_newrelic_credentials() {
     if [ -z "${NEWRELIC_API_KEY}" ]; then
         echo -e "${BLUE}Enter your New Relic License Key:${NC}"
         echo -e "${YELLOW}(Find at: https://one.newrelic.com/launcher/api-keys-ui.api-keys-launcher)${NC}"
-        read -p "License Key: " NEWRELIC_API_KEY
+        printf "License Key: "
+        read NEWRELIC_API_KEY </dev/tty
     fi
     
     export NEWRELIC_API_KEY
@@ -231,13 +245,15 @@ collect_datadog_credentials() {
     if [ -z "${DATADOG_API_KEY}" ]; then
         echo -e "${BLUE}Enter your DataDog API Key:${NC}"
         echo -e "${YELLOW}(Find at: https://app.datadoghq.com/organization-settings/api-keys)${NC}"
-        read -p "API Key: " DATADOG_API_KEY
+        printf "API Key: "
+        read DATADOG_API_KEY </dev/tty
     fi
     
     if [ -z "${DATADOG_APP_KEY}" ]; then
         echo -e "${BLUE}Enter your DataDog Application Key:${NC}"
         echo -e "${YELLOW}(Find at: https://app.datadoghq.com/organization-settings/application-keys)${NC}"
-        read -p "Application Key: " DATADOG_APP_KEY
+        printf "Application Key: "
+        read DATADOG_APP_KEY </dev/tty
     fi
     
     export DATADOG_API_KEY
@@ -251,17 +267,20 @@ collect_appdynamics_credentials() {
     if [ -z "${APPDYNAMICS_CONTROLLER_HOST}" ]; then
         echo -e "${BLUE}Enter your AppDynamics Controller Host:${NC}"
         echo -e "${YELLOW}(Format: mycompany.saas.appdynamics.com)${NC}"
-        read -p "Controller Host: " APPDYNAMICS_CONTROLLER_HOST
+        printf "Controller Host: "
+        read APPDYNAMICS_CONTROLLER_HOST </dev/tty
     fi
     
     if [ -z "${APPDYNAMICS_ACCOUNT_NAME}" ]; then
         echo -e "${BLUE}Enter your AppDynamics Account Name:${NC}"
-        read -p "Account Name: " APPDYNAMICS_ACCOUNT_NAME
+        printf "Account Name: "
+        read APPDYNAMICS_ACCOUNT_NAME </dev/tty
     fi
     
     if [ -z "${APPDYNAMICS_API_KEY}" ]; then
         echo -e "${BLUE}Enter your AppDynamics API Key:${NC}"
-        read -p "API Key: " APPDYNAMICS_API_KEY
+        printf "API Key: "
+        read APPDYNAMICS_API_KEY </dev/tty
     fi
     
     export APPDYNAMICS_CONTROLLER_HOST

@@ -27,7 +27,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: frontend-proxy
+            name: opentelemetry-demo-frontendproxy
             port:
               number: 8080
       # OTel Grafana

@@ -1,0 +1,157 @@
+# Health Check Implementation - Current State & Next Steps
+
+## Current State (as of 2025-10-03)
+
+### What's Working:
+✅ Test health check created successfully via Gremlin API
+   - Integration: test-integration-1002
+   - Health Check: test-health-1002 (ID: 0cf06f7a-f815-424b-b06f-7af815224b8e)
+   - Confirmed API behavior: returns plain UUID, not JSON
+
+✅ API Pattern Validated (from HealthChecksExplained.md):
+   - Integration creation requires: lastAuthenticationStatus, privateNetwork, type=CUSTOM
+   - Health check uses: pollingInterval (not pollingIntervalSeconds)
+   - Response is plain UUID string, not JSON object
+
+✅ Scripts Fixed:
+   - monitoring/test_gremlin_api.sh - working test script
+   - monitoring/create_prometheus_grafana_checks.sh - updated with correct API pattern
+
+### Current Infrastructure:
+
+**Ingresses:**
+1. demo-frontend.gremlinpoc.com (otel-demo namespace)
+   - ALB: k8s-oteldemo-consolid-c8b2fb6f86-330028353.us-east-2.elb.amazonaws.com
+   - HTTPS: ✅ (ACM cert: arn:aws:acm:us-east-2:856940208208:certificate/2dd4f868-36ba-4af0-995f-4778ef619030)
+   - Exposes: Frontend app ONLY
+   - Does NOT expose: Prometheus or Grafana
+
+2. monitoring.gremlinpoc.com (monitoring namespace)
+   - ALB: k8s-monitori-monitori-3823d4b4e3-1273204937.us-east-2.elb.amazonaws.com
+   - HTTPS: ✅ (same ACM cert)
+   - Exposes: Grafana at / (working: https://monitoring.gremlinpoc.com/api/health)
+   - Does NOT expose: Prometheus
+
+**Services (monitoring namespace):**
+- kube-prometheus-stack-grafana (ClusterIP) - exposed via monitoring.gremlinpoc.com
+- kube-prometheus-stack-prometheus (ClusterIP) - NO external ingress
+- prometheus-operated (ClusterIP) - internal only
+
+### The Confusion:
+
+The term "consolidated" was misleading. There is NO consolidated monitoring ingress that exposes both Prometheus and Grafana at /prometheus and /grafana paths. The "consolidated-demo-ingress" only exposes the frontend application.
+
+## Options Moving Forward:
+
+### Option A: Use Existing + Add Prometheus Path (RECOMMENDED)
+**Grafana:**
+- URL: https://monitoring.gremlinpoc.com/api/health ✅ (already working)
+
+**Prometheus:**
+- Update monitoring-ingress to add /prometheus path
+- URL: https://monitoring.gremlinpoc.com/prometheus/api/v1/alerts
+- Requires: Ingress modification to add path-based routing
+
+**Pros:**
+- Single domain for all monitoring
+- Both services HTTPS accessible
+- No PNI complexity
+- Clean, simple URLs
+
+**Cons:**
+- Requires ingress update
+- Path-based routing adds slight complexity
+
+**Implementation:**
+```yaml
+# Add to monitoring-ingress
+- path: /prometheus
+  pathType: Prefix
+  backend:
+    service:
+      name: kube-prometheus-stack-prometheus
+      port:
+        number: 9090
+```
+
+### Option B: Use Internal Kubernetes URLs with PNI
+**Grafana:**
+- URL: https://monitoring.gremlinpoc.com/api/health ✅
+
+**Prometheus:**
+- URL: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/alerts
+- Requires: Gremlin Private Network Integration (PNI) setup
+
+**Pros:**
+- No infrastructure changes
+- Uses existing setup
+
+**Cons:**
+- PNI setup complexity
+- No external HTTPS for Prometheus
+- Harder to test/debug
+
+### Option C: Create Separate Prometheus Ingress
+**Grafana:**
+- URL: https://monitoring.gremlinpoc.com/api/health ✅
+
+**Prometheus:**
+- New ingress: prometheus.gremlinpoc.com
+- URL: https://prometheus.gremlinpoc.com/api/v1/alerts
+
+**Pros:**
+- Clean separation
+- Both have dedicated domains
+- Both HTTPS
+
+**Cons:**
+- Additional ALB cost
+- More DNS records to manage
+- More complex infrastructure
+
+## Recommended Next Steps:
+
+1. **Update monitoring-ingress** to add Prometheus at /prometheus path
+2. **Test endpoints:**
+   - https://monitoring.gremlinpoc.com/api/health (Grafana)
+   - https://monitoring.gremlinpoc.com/prometheus/api/v1/alerts (Prometheus)
+3. **Update health check script** to use monitoring.gremlinpoc.com
+4. **Create real health checks** for Prometheus and Grafana
+5. **Verify in Gremlin UI**
+
+## Files Ready to Use:
+
+- `/Users/seanwiley/workshop/monitoring/test_gremlin_api.sh` - Test API (working)
+- `/Users/seanwiley/workshop/monitoring/create_prometheus_grafana_checks.sh` - Create real checks (needs URL update)
+- `/Users/seanwiley/workshop/HealthChecksExplained.md` - API documentation reference
+
+## Credentials:
+- GREMLIN_TEAM_ID: 438c58ec-03db-47ac-8c58-ec03db67ac42
+- GREMLIN_API_KEY: 14bdb4c5b41e93955d4b0a32f79ddf93bac61cccd4ce59ed29b937fba2b970f7
+
+## Decision Needed:
+Choose Option A, B, or C to proceed with health check implementation.
+
+---
+
+## UPDATE (2025-10-05): PROMETHEUS EXTERNAL ACCESS FIXED ✅
+
+### IAM Permission Fixed:
+- Added `elasticloadbalancing:SetRulePriorities` to AWSLoadBalancerControllerIAMPolicy
+- Policy version updated to v4
+- ALB controller pods restarted to pick up new permissions
+
+### Ingress Updated:
+- monitoring-ingress now routes /prometheus to Prometheus service
+- Successfully reconciled after IAM fix
+
+### Working URLs:
+✅ **Grafana Health:** https://monitoring.gremlinpoc.com/api/health
+✅ **Prometheus Alerts (for Gremlin):** https://monitoring.gremlinpoc.com/prometheus/api/v1/alerts
+
+### Internal URLs (also working):
+✅ **Grafana:** http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health
+✅ **Prometheus:** http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/prometheus/api/v1/alerts
+
+### Ready for Gremlin Health Check Creation:
+Use the external HTTPS URL for Prometheus alerts endpoint in Gremlin health checks.

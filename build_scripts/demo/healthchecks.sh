@@ -17,6 +17,12 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Source HTTPS detection library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/https_detection.sh" ]; then
+    source "$SCRIPT_DIR/../../lib/https_detection.sh"
+fi
+
 # Default values
 CLUSTER_NAME="${CLUSTER_NAME:-current-workshop}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
@@ -190,9 +196,23 @@ collect_gremlin_credentials() {
     echo ""
 }
 
+# Setup DNS records for monitoring services
+setup_dns_records() {
+    # DNS setup is handled separately via consolidated ingress
+    # Skip this step to avoid creating unnecessary Route53 records
+    echo -e "${BLUE}ℹ️  Using consolidated ALB ingress (DNS setup not needed)${NC}"
+    echo ""
+}
+
 # Discover cluster endpoints dynamically
 discover_cluster_endpoints() {
     echo -e "${BLUE}🔍 Discovering cluster endpoints...${NC}"
+    
+    # Detect HTTPS scheme
+    local scheme="http"
+    if command -v get_consolidated_alb_scheme &>/dev/null; then
+        scheme=$(get_consolidated_alb_scheme)
+    fi
     
     local state_file="$SCRIPT_DIR/cluster-state.json"
     
@@ -202,12 +222,31 @@ discover_cluster_endpoints() {
     GRAFANA_OTEL_ALB=$(jq -r '.endpoints.grafana_otel // empty' "$state_file" 2>/dev/null)
     PROMETHEUS_ALB=$(jq -r '.endpoints.prometheus // empty' "$state_file" 2>/dev/null)
     
+    # Add scheme to ALB endpoints if they exist and don't already have a scheme
+    if [ -n "$FRONTEND_ALB" ] && [[ ! "$FRONTEND_ALB" =~ ^https?:// ]]; then
+        FRONTEND_ALB="${scheme}://${FRONTEND_ALB}"
+    fi
+    if [ -n "$GRAFANA_MONITORING_ALB" ] && [[ ! "$GRAFANA_MONITORING_ALB" =~ ^https?:// ]]; then
+        GRAFANA_MONITORING_ALB="${scheme}://${GRAFANA_MONITORING_ALB}"
+    fi
+    if [ -n "$GRAFANA_OTEL_ALB" ] && [[ ! "$GRAFANA_OTEL_ALB" =~ ^https?:// ]]; then
+        GRAFANA_OTEL_ALB="${scheme}://${GRAFANA_OTEL_ALB}"
+    fi
+    if [ -n "$PROMETHEUS_ALB" ] && [[ ! "$PROMETHEUS_ALB" =~ ^https?:// ]]; then
+        PROMETHEUS_ALB="${scheme}://${PROMETHEUS_ALB}"
+    fi
+    
     # Get DNS mappings
     FRONTEND_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "frontend") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-frontend.gremlinpoc.com")
     GRAFANA_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "grafana_monitoring") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-grafana.gremlinpoc.com")
     PROMETHEUS_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "prometheus") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-prometheus.gremlinpoc.com:9090")
     
-    echo -e "${GREEN}✅ Endpoints discovered:${NC}"
+    # Add scheme to DNS endpoints
+    FRONTEND_DNS="${scheme}://${FRONTEND_DNS}"
+    GRAFANA_DNS="${scheme}://${GRAFANA_DNS}"
+    PROMETHEUS_DNS="${scheme}://${PROMETHEUS_DNS}"
+    
+    echo -e "${GREEN}✅ Endpoints discovered (using ${scheme}):${NC}"
     echo -e "   Frontend: ${FRONTEND_ALB:-$FRONTEND_DNS}"
     echo -e "   Grafana: ${GRAFANA_MONITORING_ALB:-$GRAFANA_DNS}"
     echo -e "   Prometheus: ${PROMETHEUS_ALB:-$PROMETHEUS_DNS}"
@@ -329,12 +368,12 @@ create_prometheus_health_checks() {
         return 0
     fi
     
-    # Determine endpoint URL
+    # Determine endpoint URL (already has scheme from discover_cluster_endpoints)
     local prometheus_url
     if [ -n "${PROMETHEUS_ALB:-}" ]; then
         prometheus_url="$PROMETHEUS_ALB"
     else
-        prometheus_url="http://$PROMETHEUS_DNS"
+        prometheus_url="$PROMETHEUS_DNS"
     fi
     
     # Create Prometheus authorization for alert monitoring
@@ -405,12 +444,19 @@ EOF
                 -d "$health_check_payload" 2>/dev/null)
             
             if [ $? -eq 0 ] && [ -n "$health_check_response" ]; then
-                echo -e "${GREEN}✅ Prometheus firing alerts health check created successfully${NC}"
-                echo -e "${BLUE}🔗 URL: $prometheus_url/api/v1/alerts${NC}"
+                # Check if response contains an error
+                local error_msg=$(echo "$health_check_response" | jq -r '.error // empty' 2>/dev/null)
+                if [ -n "$error_msg" ]; then
+                    echo -e "${RED}❌ Failed to create Prometheus health check: $error_msg${NC}"
+                    echo -e "${YELLOW}Response: $health_check_response${NC}"
+                else
+                    echo -e "${GREEN}✅ Prometheus firing alerts health check created successfully${NC}"
+                    echo -e "${BLUE}🔗 URL: $prometheus_url/api/v1/alerts${NC}"
+                fi
             else
                 echo -e "${RED}❌ Failed to create Prometheus health check${NC}"
+                echo -e "${YELLOW}Response: $health_check_response${NC}"
             fi
-    fi
     
     echo ""
 }
@@ -425,16 +471,24 @@ create_grafana_health_checks() {
         return 0
     fi
     
-    # Determine endpoint URL
+    # Determine endpoint URL (already has scheme from discover_cluster_endpoints)
     local grafana_url
     if [ -n "${GRAFANA_MONITORING_ALB:-}" ]; then
         grafana_url="$GRAFANA_MONITORING_ALB"
     else
-        grafana_url="http://$GRAFANA_DNS"
+        grafana_url="$GRAFANA_DNS"
     fi
     
     # Create Grafana authorization for alert monitoring via datasource proxy
     echo -e "${BLUE}📡 Creating Grafana authorization for alert monitoring...${NC}"
+    
+    # Get Grafana password from environment or Kubernetes secret
+    local grafana_password="${GRAFANA_ADMIN_PASSWORD:-}"
+    if [ -z "$grafana_password" ]; then
+        grafana_password=$(kubectl get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" 2>/dev/null | base64 --decode 2>/dev/null || echo "admin123")
+    fi
+    local basic_auth=$(echo -n "admin:$grafana_password" | base64)
+    
     local integration_payload=$(cat << EOF
 {
   "name": "grafana-auth-working",
@@ -444,7 +498,7 @@ create_grafana_health_checks() {
   "lastAuthenticationStatus": "AUTHENTICATED",
   "url": "$grafana_url/login",
   "headers": {
-    "Authorization": "Basic YWRtaW46YWRtaW4xMjM="
+    "Authorization": "Basic $basic_auth"
   }
 }
 EOF
@@ -503,23 +557,23 @@ EOF
                 -d "$health_check_payload" 2>/dev/null)
             
             if [ $? -eq 0 ] && [ -n "$health_check_response" ]; then
-                local health_check_id=$(echo "$health_check_response" | jq -r '.identifier // empty' 2>/dev/null)
-                
-                if [ -n "$health_check_id" ] && [ "$health_check_id" != "null" ] && [ "$health_check_id" != "empty" ]; then
-                    echo -e "${GREEN}✅ Grafana firing alerts health check created: $health_check_id${NC}"
-                    echo -e "${BLUE}🔗 URL: $grafana_url/api/datasources/proxy/1/api/v1/alerts${NC}"
+                # Check if response contains an error
+                local error_msg=$(echo "$health_check_response" | jq -r '.error // empty' 2>/dev/null)
+                if [ -n "$error_msg" ]; then
+                    echo -e "${RED}❌ Failed to create Grafana health check: $error_msg${NC}"
+                    echo -e "${YELLOW}Response: $health_check_response${NC}"
                 else
-                    # Check if response contains error or if it's actually successful
-                    local error_message=$(echo "$health_check_response" | jq -r '.message // empty' 2>/dev/null)
-                    if [ -n "$error_message" ] && [ "$error_message" != "empty" ]; then
-                        echo -e "${RED}❌ Failed to create Grafana firing alerts health check: $error_message${NC}"
-                    else
-                        echo -e "${GREEN}✅ Grafana firing alerts health check created successfully${NC}"
+                    # API returns plain UUID string on success, not JSON
+                    if [[ "$health_check_response" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+                        echo -e "${GREEN}✅ Grafana firing alerts health check created: $health_check_response${NC}"
                         echo -e "${BLUE}🔗 URL: $grafana_url/api/datasources/proxy/1/api/v1/alerts${NC}"
+                    else
+                        echo -e "${RED}❌ Failed to create Grafana health check (unexpected response)${NC}"
+                        echo -e "${YELLOW}Response: $health_check_response${NC}"
                     fi
                 fi
             else
-                echo -e "${RED}❌ Failed to create Grafana firing alerts health check - API call failed${NC}"
+                echo -e "${RED}❌ Failed to create Grafana health check - API call failed${NC}"
             fi
     
     echo ""
@@ -632,6 +686,7 @@ main() {
         validate_health_checks
     else
         collect_gremlin_credentials
+        setup_dns_records
         discover_cluster_endpoints
         wait_for_endpoint_readiness
         cleanup_gremlin_services

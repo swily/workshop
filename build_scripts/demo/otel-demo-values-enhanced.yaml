@@ -416,7 +416,9 @@ components:
         existingConfigMap: product-catalog-products
     resources:
       limits:
-        memory: 20Mi
+        memory: 100Mi
+      requests:
+        memory: 100Mi
 
   quote:
     enabled: true

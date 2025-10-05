@@ -148,10 +148,13 @@ fi
 
 # Install DataDog agent
 section "Installing DataDog agent"
-echo -e "${YELLOW}This is a placeholder script for DataDog installation.${NC}"
-echo -e "${YELLOW}In a real implementation, we would run:${NC}"
-echo -e "${BLUE}helm upgrade --install datadog datadog/datadog --namespace datadog --values ${CUSTOM_VALUES_FILE}${NC}"
-echo -e "${YELLOW}For now, this is just a placeholder. No actual installation will be performed.${NC}"
+helm upgrade --install datadog datadog/datadog \
+  --namespace datadog \
+  --values "${CUSTOM_VALUES_FILE}" \
+  --set datadog.apiKey="${DATADOG_API_KEY}" \
+  --set datadog.appKey="${DATADOG_APP_KEY}" \
+  --set datadog.clusterName="${CLUSTER_NAME}" \
+  --wait
 
 # Create ServiceMonitors if Prometheus is installed
 if kubectl get namespace monitoring &>/dev/null && kubectl get deployment -n monitoring prometheus-operator-kube-p-operator &>/dev/null; then
@@ -181,17 +184,32 @@ spec:
       interval: 30s
 EOF
 
+  # Apply the ServiceMonitor
+  kubectl apply -f "${SCRIPT_DIR}/../servicemonitors/datadog-servicemonitor.yaml"
   echo -e "${GREEN}✅ ServiceMonitor for DataDog created${NC}"
-  echo -e "${YELLOW}Note: This is a placeholder. In a real implementation, we would apply this ServiceMonitor.${NC}"
+fi
+
+# Verify DataDog installation
+section "Verifying DataDog installation"
+echo -e "${YELLOW}Waiting for DataDog pods to be ready...${NC}"
+sleep 30
+
+if kubectl get pods -n datadog | grep -q 'Running'; then
+  echo -e "${GREEN}✅ DataDog is running${NC}"
+  kubectl get pods -n datadog
+  echo -e "${GREEN}📊 View your cluster in DataDog: https://app.datadoghq.com/infrastructure${NC}"
+  echo -e "${GREEN}   Cluster Name: ${CLUSTER_NAME}${NC}"
+else
+  echo -e "${RED}❌ DataDog installation may have issues. Check logs with:${NC}"
+  echo "kubectl logs -n datadog -l app=datadog"
 fi
 
 # Provide instructions for next steps
 section "Next Steps"
-echo -e "${GREEN}This is a placeholder for DataDog installation.${NC}"
-echo -e "In a real implementation, you would:"
-echo -e "1. Visit DataDog to verify the cluster is connected"
+echo -e "${GREEN}DataDog has been installed in your cluster.${NC}"
+echo -e "1. Visit DataDog to verify the cluster is connected: https://app.datadoghq.com"
 echo -e "2. Set up dashboards and alerts in DataDog"
-echo -e "3. Configure OpenTelemetry to send data to DataDog"
+echo -e "3. Create health checks with: ./monitoring/datadog/create_health_checks.sh"
 
-echo -e "\n${GREEN}DataDog installation placeholder completed${NC}"
+echo -e "\n${GREEN}DataDog installation completed${NC}"
 exit 0

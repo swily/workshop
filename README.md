@@ -82,15 +82,15 @@ The workshop deploys:
 
 ## Domain & TLS Automation
 
-- **Fixed Base Domain**: `gremlin.poc.com` (no user input)
-- **TLS**: If a wildcard ACM certificate `*.gremlin.poc.com` exists in the target AWS region, the system automatically enables HTTPS at the ALB and redirects HTTP→HTTPS. If not found, it falls back to HTTP-only.
-- **DNS**: ExternalDNS creates records like `my-demo-frontend.gremlin.poc.com`, `my-demo-grafana.gremlin.poc.com`, `my-demo-prometheus.gremlin.poc.com`.
+- **Fixed Base Domain**: `gremlinpoc.com` (no user input)
+- **TLS**: If a wildcard ACM certificate `*.gremlinpoc.com` exists in the target AWS region, the system automatically enables HTTPS at the ALB and redirects HTTP→HTTPS. If not found, it falls back to HTTP-only.
+- **DNS**: ExternalDNS creates records like `my-demo-frontend.gremlinpoc.com`, `my-demo-grafana.gremlinpoc.com`, `my-demo-prometheus.gremlinpoc.com`.
 
 ### Prerequisites for DNS/TLS
 
-1) Route53 hosted zone for `gremlin.poc.com` in your AWS account
+1) Route53 hosted zone for `gremlinpoc.com` in your AWS account
 
-2) Wildcard ACM certificate `*.gremlin.poc.com` in the same region as your cluster/ALB (e.g., `us-east-2`). ACM auto-discovery selects it if present.
+2) Wildcard ACM certificate `*.gremlinpoc.com` in the same region as your cluster/ALB (e.g., `us-east-2`). ACM auto-discovery selects it if present.
 
 3) ExternalDNS IAM Role (IRSA)
 
@@ -128,12 +128,12 @@ Attach this policy to a role that trusts your EKS OIDC provider and the External
 export EXTERNALDNS_IAM_ROLE_ARN=arn:aws:iam::<ACCOUNT_ID>:role/<ExternalDNSRole>
 ```
 
-The workshop will install ExternalDNS automatically when `BASE_DOMAIN` is set (it is fixed to `gremlin.poc.com`).
+The workshop will install ExternalDNS automatically when `BASE_DOMAIN` is set (it is fixed to `gremlinpoc.com`).
 
 ### LOCUST_HOST automation
 
 - After deployment, `scripts/operations/deploy_otel.sh` sets `LOCUST_HOST` on the load-generator Deployment using:
-  - Preferred FQDN from `${CLUSTER_NAME}-frontend.gremlin.poc.com` if DNS is present
+  - Preferred FQDN from `${CLUSTER_NAME}-frontend.gremlinpoc.com` if DNS is present
   - Fallback to ALB hostname from the `frontend-proxy` Ingress until DNS propagates
 
 ---

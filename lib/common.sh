@@ -27,7 +27,7 @@ get_frontend_fqdn() {
         return 0
     fi
     # Fallback: discover ALB hostname from ingress
-    local alb_host=$(kubectl get ingress -n otel-demo frontend-proxy -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+    local alb_host=$(kubectl get ingress -n otel-demo consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
     echo "$alb_host"
 }
 

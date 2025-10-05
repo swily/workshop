@@ -15,6 +15,12 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
+# Source HTTPS detection library
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/../../lib/https_detection.sh" ]; then
+    source "$SCRIPT_DIR/../../lib/https_detection.sh"
+fi
+
 # Gremlin API configuration
 GREMLIN_TEAM_ID="${GREMLIN_TEAM_ID:-438c58ec-03db-47ac-8c58-ec03db67ac42}"
 GREMLIN_API_KEY="${GREMLIN_API_KEY}"
@@ -75,10 +81,10 @@ generate_bearer_token() {
 setup_dns_and_wait() {
     if [ -n "${BASE_DOMAIN}" ] && [ -n "${CLUSTER_NAME}" ]; then
         echo -e "${BLUE}🔧 Ensuring Route53 DNS is configured before creating health checks...${NC}"
-        if [ -x "helper_scripts/dns/setup_monitoring_loadbalancer.sh" ]; then
-            helper_scripts/dns/setup_monitoring_loadbalancer.sh || echo -e "${YELLOW}⚠️  DNS setup script returned non-zero, continuing...${NC}"
+        if [ -x "helper_scripts/dns/setup_alb_dns.sh" ]; then
+            helper_scripts/dns/setup_alb_dns.sh || echo -e "${YELLOW}⚠️  DNS setup script returned non-zero, continuing...${NC}"
         else
-            echo -e "${YELLOW}⚠️  DNS setup script not found or not executable: helper_scripts/dns/setup_monitoring_loadbalancer.sh${NC}"
+            echo -e "${YELLOW}⚠️  DNS setup script not found or not executable: helper_scripts/dns/setup_alb_dns.sh${NC}"
         fi
 
         # After attempting setup, recompute endpoints to prefer DNS
@@ -112,6 +118,12 @@ setup_dns_and_wait() {
 
 # Resolve monitoring ingress hostnames (ALB) and optional DNS FQDNs
 resolve_monitoring_endpoints() {
+    # Detect HTTPS scheme
+    local scheme="http"
+    if command -v get_consolidated_alb_scheme &>/dev/null; then
+        scheme=$(get_consolidated_alb_scheme)
+    fi
+    
     # Allow direct overrides via env vars
     if [ -n "$PROMETHEUS_URL" ]; then
         PROMETHEUS_ENDPOINT="$PROMETHEUS_URL"
@@ -125,7 +137,7 @@ resolve_monitoring_endpoints() {
         local prom_ing
         prom_ing=$(kubectl get ingress -n monitoring prometheus-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
         if [ -n "$prom_ing" ]; then
-            PROMETHEUS_ENDPOINT="http://${prom_ing}/api/v1/alerts"
+            PROMETHEUS_ENDPOINT="${scheme}://${prom_ing}/api/v1/alerts"
         fi
     fi
 
@@ -133,14 +145,14 @@ resolve_monitoring_endpoints() {
         local graf_ing
         graf_ing=$(kubectl get ingress -n monitoring grafana-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
         if [ -n "$graf_ing" ]; then
-            GRAFANA_ENDPOINT="http://${graf_ing}/api/health"
+            GRAFANA_ENDPOINT="${scheme}://${graf_ing}/api/health"
         fi
     fi
 
     # Prefer Route53 DNS FQDNs based on CLUSTER_NAME and BASE_DOMAIN if provided
     if [ -n "$BASE_DOMAIN" ] && [ -n "${CLUSTER_NAME}" ]; then
-        local prom_dns="http://${CLUSTER_NAME}-prometheus.${BASE_DOMAIN}:9090/api/v1/alerts"
-        local graf_dns="http://${CLUSTER_NAME}-grafana-monitoring.${BASE_DOMAIN}/api/health"
+        local prom_dns="${scheme}://${CLUSTER_NAME}-prometheus.${BASE_DOMAIN}:9090/api/v1/alerts"
+        local graf_dns="${scheme}://${CLUSTER_NAME}-grafana-monitoring.${BASE_DOMAIN}/api/health"
         PROMETHEUS_DNS_ENDPOINT="$prom_dns"
         GRAFANA_DNS_ENDPOINT="$graf_dns"
 

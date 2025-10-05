@@ -4,7 +4,7 @@
 # OpenTelemetry Demo Workshop Setup with Integrated Monitoring & Chaos Engineering
 #
 
-set -Eeuo pipefail
+set -Eeu
 
 # Get script directory and source libraries
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,6 +12,9 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/ui.sh"
 source "$SCRIPT_DIR/lib/cluster.sh"
 source "$SCRIPT_DIR/lib/monitoring.sh"
+
+# Enforce consolidated ingress mode (single ALB with path-based routing)
+export CONSOLIDATED_INGRESS=true
 
 # Parse command line arguments
 parse_arguments() {
@@ -23,6 +26,7 @@ parse_arguments() {
 
     # Feature flags
     INSTALL_ISTIO=false
+    ENABLE_FAILURE_FLAGS=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -53,6 +57,10 @@ parse_arguments() {
                 ;;
             --install-istio)
                 INSTALL_ISTIO=true
+                shift
+                ;;
+            --enable-failure-flags)
+                ENABLE_FAILURE_FLAGS=true
                 shift
                 ;;
             --gremlin-team-id)
@@ -91,6 +99,28 @@ parse_arguments() {
         esac
     done
 }
+# Patch consolidated ingress with DNS and TLS if ACM is available
+patch_consolidated_ingress_dns_tls() {
+    local ingress_ns="otel-demo"
+    local ingress_name="consolidated-demo-ingress"
+    local hostname="demo-frontend.${BASE_DOMAIN}"
+
+    log_info "Patching consolidated ingress with ExternalDNS hostname: ${hostname}"
+    kubectl -n "$ingress_ns" annotate ingress "$ingress_name" \
+        "external-dns.alpha.kubernetes.io/hostname=${hostname}" \
+        --overwrite || true
+
+    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
+        log_info "Applying TLS annotations using ACM cert: ${ACM_CERT_ARN}"
+        kubectl -n "$ingress_ns" annotate ingress "$ingress_name" \
+            'alb.ingress.kubernetes.io/listen-ports=[{"HTTP":80,"HTTPS":443}]' \
+            'alb.ingress.kubernetes.io/ssl-redirect=443' \
+            "alb.ingress.kubernetes.io/certificate-arn=${ACM_CERT_ARN}" \
+            --overwrite || true
+    else
+        log_warning "ACM not detected; leaving ingress HTTP-only"
+    fi
+}
 # Core workflow functions
 create_and_deploy() {
     log_section "Creating New Cluster and Deploying Everything"
@@ -106,19 +136,37 @@ create_and_deploy() {
     fi
     "$SCRIPT_DIR/scripts/operations/cluster_create.sh" "${CREATE_ARGS[@]}"
     
-    # Deploy OpenTelemetry demo
-    "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
+    # Deploy OpenTelemetry demo (skip per-app ingress when CONSOLIDATED_INGRESS=true)
+    CONSOLIDATED_INGRESS=true "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
         --cluster-name "$CLUSTER_NAME"
     
-    # Install Gremlin
-    "$SCRIPT_DIR/scripts/gremlin_install.sh" \
-        --cluster-name "$CLUSTER_NAME" \
-        --team-id "$GREMLIN_TEAM_ID" \
-        --team-secret "$GREMLIN_TEAM_SECRET" \
-        --api-key "$GREMLIN_API_KEY"
+    # Setup Gremlin
+    setup_gremlin_only
     
-    # Setup monitoring
-    setup_comprehensive_monitoring "$MONITORING_PLATFORM"
+    # Deploy failure flags if requested
+    if [[ "$ENABLE_FAILURE_FLAGS" == "true" ]]; then
+        log_info "Deploying Failure Flags sidecar..."
+        "$SCRIPT_DIR/scripts/operations/deploy_failure_flags.sh" \
+            --cluster-name "$CLUSTER_NAME"
+    fi
+    
+    # Setup monitoring (skip per-app ingresses when CONSOLIDATED_INGRESS=true)
+    CONSOLIDATED_INGRESS=true setup_comprehensive_monitoring "$MONITORING_PLATFORM"
+
+    # Apply cross-namespace services to route monitoring through consolidated ALB
+    log_info "Applying cross-namespace services for consolidated ingress..."
+    kubectl apply -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" || log_warning "Cross-namespace services file not found"
+
+    # Apply consolidated ingress (single ALB, path-based routing)
+    log_info "Applying consolidated ingress..."
+    kubectl apply -f "$SCRIPT_DIR/consolidated-demo-ingress.yaml" || log_warning "Consolidated ingress file not found"
+
+    # Patch DNS/TLS on the consolidated ingress
+    patch_consolidated_ingress_dns_tls
+
+    # Remove any legacy per-app ingresses if they exist (idempotent cleanup)
+    kubectl delete ingress -n otel-demo frontend-proxy jaeger-ingress 2>/dev/null || true
+    kubectl delete ingress -n monitoring grafana-ingress prometheus-ingress 2>/dev/null || true
     
     # Export cluster state
     export_cluster_state "$CLUSTER_NAME" "$AWS_REGION"
@@ -134,6 +182,26 @@ deploy_to_existing() {
     validate_cluster_exists "$CLUSTER_NAME" "$AWS_REGION"
     update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
     
+    # Check for existing installations and handle conflicts
+    log_info "Checking for existing installations..."
+    
+    # Check for existing OpenTelemetry Demo
+    if helm list -n otel-demo -q | grep -q "opentelemetry-demo"; then
+        log_warning "Existing OpenTelemetry Demo found. Upgrading in place..."
+        helm upgrade opentelemetry-demo open-telemetry/opentelemetry-demo -n otel-demo --reuse-values || {
+            log_warning "Upgrade failed, uninstalling and reinstalling..."
+            helm uninstall opentelemetry-demo -n otel-demo --ignore-not-found
+            sleep 10
+        }
+    fi
+    
+    # Check for existing Gremlin installation
+    if helm list -n gremlin -q | grep -q "gremlin"; then
+        log_warning "Existing Gremlin installation found. Uninstalling first..."
+        helm uninstall gremlin -n gremlin --ignore-not-found
+        sleep 10
+    fi
+    
     # Deploy OpenTelemetry demo
     "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
         --cluster-name "$CLUSTER_NAME"
@@ -148,8 +216,22 @@ deploy_to_existing() {
         --team-secret "$GREMLIN_TEAM_SECRET" \
         --api-key "$GREMLIN_API_KEY"
     
+    # Apply Gremlin service annotations
+    log_info "Applying Gremlin service annotations..."
+    "$SCRIPT_DIR/config/gremlin/gremlin_annotations.sh" otel-demo
+    
+    # Deploy failure flags if requested
+    if [[ "$ENABLE_FAILURE_FLAGS" == "true" ]]; then
+        log_info "Deploying Failure Flags sidecar..."
+        "$SCRIPT_DIR/scripts/operations/deploy_failure_flags.sh" \
+            --cluster-name "$CLUSTER_NAME"
+    fi
+    
     # Setup monitoring
     MONITORING_PLATFORM="$MONITORING_PLATFORM" setup_comprehensive_monitoring "$MONITORING_PLATFORM"
+    
+    # Setup consolidated ingress and DNS
+    setup_consolidated_ingress_and_dns
     
     # Export cluster state
     export_cluster_state "$CLUSTER_NAME" "$AWS_REGION"
@@ -173,8 +255,11 @@ setup_gremlin_only() {
         --cluster-name "$CLUSTER_NAME" \
         --team-id "$GREMLIN_TEAM_ID" \
         --team-secret "$GREMLIN_TEAM_SECRET" \
-        --api-key "$GREMLIN_API_KEY" \
-        --auto-tag "otel-demo"
+        --api-key "$GREMLIN_API_KEY"
+    
+    # Apply Gremlin service annotations
+    log_info "Applying Gremlin service annotations..."
+    "$SCRIPT_DIR/config/gremlin/gremlin_annotations.sh" otel-demo
     
     # Setup Gremlin monitoring
     MONITORING_PLATFORM="$MONITORING_PLATFORM" setup_gremlin_monitoring
@@ -192,16 +277,18 @@ cleanup_cluster_wrapper() {
 
 # Interactive mode functions
 run_interactive_mode() {
+    # Ensure we are interacting with the terminal device directly
+    if [ -e /dev/tty ]; then
+        exec </dev/tty >/dev/tty 2>&1
+    fi
     # Collect user choices
-    WORKSHOP_ACTION=$(collect_workshop_action)
-    cluster_info=$(collect_cluster_info)
-    CLUSTER_NAME=$(echo "$cluster_info" | cut -d':' -f1)
-    AWS_REGION=$(echo "$cluster_info" | cut -d':' -f2)
+    collect_workshop_action
+    collect_cluster_info
     
     # Collect credentials if needed
     if [[ "$WORKSHOP_ACTION" != "cleanup" ]]; then
         collect_gremlin_credentials
-        MONITORING_PLATFORM=$(collect_monitoring_platform)
+        collect_monitoring_platform
         collect_advanced_options
     fi
     

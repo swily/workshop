@@ -164,6 +164,14 @@ default:
         fieldRef:
           apiVersion: v1
           fieldPath: metadata.name
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: "http://opentelemetry-demo-otelcol:4317"
+    - name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+      value: "http://opentelemetry-demo-otelcol:4318/v1/traces"
+    - name: OTEL_COLLECTOR_HOST
+      value: "opentelemetry-demo-otelcol"
+    - name: OTEL_COLLECTOR_NAME
+      value: "opentelemetry-demo-otelcol"
 
 jaeger:
   enabled: $ENABLE_JAEGER
@@ -238,83 +246,7 @@ EOF
     log_success "OpenTelemetry demo deployed successfully"
 }
 
-# Function to setup ingress (ALB only)
-setup_ingress() {
-    log_info "Setting up ingress for OpenTelemetry demo..."
-    
-    if is_dry_run; then
-        log_warning "[DRY RUN] Would setup ingress"
-        return 0
-    fi
-    
-    # Compute ALB/ExternalDNS annotations
-    FRONTEND_HOSTNAME="${HOST_PREFIX:-}frontend.${BASE_DOMAIN:-}"
-    LISTEN_PORTS='[{"HTTP":80}]'
-    TLS_ANNOTS=""
-    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
-        LISTEN_PORTS='[{"HTTP":80,"HTTPS":443}]'
-        TLS_ANNOTS="    alb.ingress.kubernetes.io/ssl-redirect: '443'\n    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}"
-    fi
-
-    # Create frontend ingress (ALB)
-    cat << EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: frontend-proxy
-  namespace: $NAMESPACE
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '${LISTEN_PORTS}'
-    $( [[ -n "${BASE_DOMAIN:-}" ]] && echo external-dns.alpha.kubernetes.io/hostname: "${FRONTEND_HOSTNAME}" )
-${TLS_ANNOTS}
-spec:
-  ingressClassName: alb
-  rules:
-  - http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: opentelemetry-demo-frontendproxy
-            port:
-              number: 8080
-EOF
-    
-    # Create Jaeger ingress if enabled (ALB)
-    if [ "$ENABLE_JAEGER" = "true" ]; then
-        JAEGER_HOSTNAME="${HOST_PREFIX:-}jaeger.${BASE_DOMAIN:-}"
-        cat << EOF | kubectl apply -f -
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: jaeger-ingress
-  namespace: $NAMESPACE
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '${LISTEN_PORTS}'
-    $( [[ -n "${BASE_DOMAIN:-}" ]] && echo external-dns.alpha.kubernetes.io/hostname: "${JAEGER_HOSTNAME}" )
-${TLS_ANNOTS}
-spec:
-  ingressClassName: alb
-  rules:
-  - http:
-      paths:
-      - path: /jaeger
-        pathType: Prefix
-        backend:
-          service:
-            name: opentelemetry-demo-jaeger-query
-            port:
-              number: 16686
-EOF
-    fi
-    
-    log_success "Ingress configuration completed"
-}
+## Consolidated ingress is applied by workshop.sh; no per-app ingress here
 
 # Function to wait for deployment
 wait_for_deployment() {
@@ -352,18 +284,14 @@ wait_for_deployment() {
 display_endpoints() {
     log_section "OpenTelemetry Demo Endpoints"
     
-    # Get frontend ALB
-    local frontend_alb=$(kubectl get ingress -n "$NAMESPACE" frontend-proxy -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
+    # Use consolidated ingress hostname
+    local frontend_alb=$(kubectl get ingress -n "$NAMESPACE" consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
     
     echo -e "${GREEN}🌐 Application Endpoints:${NC}"
     echo "  Frontend:    http://$frontend_alb"
     echo ""
     
-    if [ "$ENABLE_JAEGER" = "true" ]; then
-        local jaeger_alb=$(kubectl get ingress -n "$NAMESPACE" jaeger-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Pending...")
-        echo "  Jaeger UI:   http://$jaeger_alb/jaeger"
-        echo ""
-    fi
+    # In consolidated mode, Jaeger (if enabled) is expected to be path-routed via the consolidated ingress
     
     echo -e "${YELLOW}📋 Port Forward Commands:${NC}"
     echo "  Jaeger:      kubectl port-forward -n $NAMESPACE svc/opentelemetry-demo-jaeger-query 16686:16686"
@@ -392,7 +320,6 @@ main() {
     
     # Deploy components
     deploy_otel_demo
-    setup_ingress
     wait_for_deployment
     set_locust_host
     

@@ -135,8 +135,9 @@ kubectl -n dynatrace wait --for=condition=ready pods -l app.kubernetes.io/compon
 
 # Create a secret with the Dynatrace API token
 section "Creating Dynatrace API token secret"
-kubectl -n dynatrace create secret generic dynatrace-api-token \
+kubectl create secret generic dynatrace-api-token \
   --from-literal="apiToken=${DYNATRACE_API_TOKEN}" \
+  --namespace=dynatrace \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # Create values directory if it doesn't exist

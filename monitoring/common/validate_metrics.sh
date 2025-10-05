@@ -174,7 +174,7 @@ validate_otel_demo_deployment() {
   # Check if namespace exists
   if ! kubectl get namespace "$OTEL_DEMO_NAMESPACE" >/dev/null 2>&1; then
     echo -e "${RED}❌ otel-demo namespace not found${NC}"
-    echo -e "${YELLOW}Please deploy otel-demo first using: ./build_scripts/demo/otel_demo.sh${NC}"
+    echo -e "${YELLOW}Please deploy otel-demo first using: ./scripts/operations/deploy_otel.sh${NC}"
     return 1
   fi
   

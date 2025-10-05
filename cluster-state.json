@@ -2,16 +2,15 @@
   "cluster_name": "new-script",
   "region": "us-east-2",
   "endpoints": {
-    "frontend": "http://k8s-oteldemo-frontend-b6d7026d06-482401141.us-east-2.elb.amazonaws.com",
-    "frontend_fqdn": "http://new-script-frontend.gremlinpoc.com",
-    "grafana_monitoring": "http://k8s-monitori-grafanai-17eaddaed4-67625734.us-east-2.elb.amazonaws.com",
+    "frontend": "https://demo-frontend.gremlinpoc.com",
+    "frontend_fqdn": "https://demo-frontend.gremlinpoc.com",
+    "grafana_monitoring": "https://monitoring.gremlinpoc.com",
     "grafana_otel": "",
-    "prometheus": "http://k8s-monitori-promethe-629238981c-1001804082.us-east-2.elb.amazonaws.com"
+    "prometheus": "https://monitoring.gremlinpoc.com/prometheus"
   },
   "dns_mappings": {
-    "new-script-frontend.gremlinpoc.com": "frontend",
-    "new-script-grafana.gremlinpoc.com": "grafana_monitoring",
-    "new-script-prometheus.gremlinpoc.com": "prometheus"
+    "demo-frontend.gremlinpoc.com": "frontend",
+    "monitoring.gremlinpoc.com": "grafana_monitoring"
   },
-  "deployment_timestamp": "2025-09-11T07:16:24Z"
+  "deployment_timestamp": "2025-10-05T21:14:53Z"
 }
