@@ -1,372 +1,849 @@
-# Workshop - Unified Observability Platform
+# Workshop - OpenTelemetry Demo with Gremlin Chaos Engineering
 
-A comprehensive framework for deploying and managing observability platforms (Dynatrace, New Relic, Grafana) with automated setup, health checks, and Gremlin chaos engineering integration.
-
-## Prerequisites
-
-Before starting, ensure you have the following tools installed and configured:
-
-### Required Tools
-- **AWS CLI** - Installed and configured with your credentials (`aws configure`)
-- **kubectl** - Kubernetes command-line tool
-- **eksctl** - Amazon EKS command-line tool  
-- **Helm v3** - Kubernetes package manager
-- **jq** - JSON processor for parsing API responses
-- **curl** - Command-line tool for HTTP requests
-
-### AWS Configuration
-Ensure your AWS CLI is configured with:
-```bash
-aws configure list
-# Should show your access key, secret key, region, and output format
-```
-
-### Kubernetes Context
-Verify kubectl can access your cluster:
-```bash
-kubectl config current-context
-kubectl cluster-info
-```
-
-### Optional Platform Accounts
-For observability platform integration, you'll need accounts and credentials for:
-- **Gremlin** - Team ID and Team Secret for chaos engineering
-
-## Quick Start (Modern Workflow)
-
-1. **Create a new cluster and deploy everything (minimal inputs):**
-   ```bash
-   ./workshop.sh --action build_new --cluster-name my-demo --region us-east-2
-   ```
-
-2. **Deploy to existing cluster:**
-   ```bash
-   ./workshop.sh --action deploy_existing --cluster-name my-demo --region us-east-2
-   ```
-
-3. **Install Gremlin only (existing cluster):**
-   ```bash
-   ./workshop.sh --action gremlin_only --cluster-name my-demo --region us-east-2
-   # Provide GREMLIN_TEAM_ID / GREMLIN_TEAM_SECRET / GREMLIN_API_KEY via env or prompts
-   ```
-
-## What's Included
-
-- **OpenTelemetry Demo**: Full e-commerce application with distributed tracing
-- **Enhanced Load Testing**: Chaos-engineering optimized locustfile.py with Gremlin integration
-- **Production-Ready Configuration**: Security contexts, resource limits, ALB ingress
-- **Monitoring Stack**: Prometheus, Grafana, Jaeger, OpenSearch for full observability
-- **Chaos Engineering**: Gremlin integration for reliability testing
-- **AWS ALB Integration**: Application Load Balancer with health checks and auto-scaling
-- **ExternalDNS**: Automatically creates Route53 DNS records
-- **TLS at ALB via ACM**: Wildcard cert `*.gremlin.poc.com` auto-discovered per region
-
-## Architecture (ALB-first, DNS/TLS automated)
-
-The workshop deploys:
-- EKS cluster with managed node groups and ALB controller
-- OpenTelemetry demo application (microservices) with enhanced configuration
-- **ALB Ingress** for internet-facing access (replaces manual load balancer setup)
-- Prometheus + Grafana + OpenSearch monitoring stack
-- Jaeger distributed tracing with exemplar integration
-- Advanced load generator with chaos testing scenarios
-- Gremlin chaos engineering platform with Istio integration
-
-## Prerequisites
-
-- AWS CLI configured with appropriate permissions
-- kubectl installed
-- Helm 3.x installed
-- **AWS Load Balancer Controller** (automatically installed)
-- Docker (for local development)
-
-## Domain & TLS Automation
-
-- **Fixed Base Domain**: `gremlinpoc.com` (no user input)
-- **TLS**: If a wildcard ACM certificate `*.gremlinpoc.com` exists in the target AWS region, the system automatically enables HTTPS at the ALB and redirects HTTP→HTTPS. If not found, it falls back to HTTP-only.
-- **DNS**: ExternalDNS creates records like `my-demo-frontend.gremlinpoc.com`, `my-demo-grafana.gremlinpoc.com`, `my-demo-prometheus.gremlinpoc.com`.
-
-### Prerequisites for DNS/TLS
-
-1) Route53 hosted zone for `gremlinpoc.com` in your AWS account
-
-2) Wildcard ACM certificate `*.gremlinpoc.com` in the same region as your cluster/ALB (e.g., `us-east-2`). ACM auto-discovery selects it if present.
-
-3) ExternalDNS IAM Role (IRSA)
-
-- Recommended: provide the IAM role ARN via env var `EXTERNALDNS_IAM_ROLE_ARN` so the installer can attach it to ExternalDNS.
-- Minimal IAM policy example (replace `Z1234567890ABCDEFG` with your hosted zone ID):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "route53:ChangeResourceRecordSets"
-      ],
-      "Resource": [
-        "arn:aws:route53:::hostedzone/Z1234567890ABCDEFG"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "route53:ListHostedZones",
-        "route53:ListResourceRecordSets"
-      ],
-      "Resource": ["*"]
-    }
-  ]
-}
-```
-
-Attach this policy to a role that trusts your EKS OIDC provider and the ExternalDNS service account (IRSA). Then export:
-
-```bash
-export EXTERNALDNS_IAM_ROLE_ARN=arn:aws:iam::<ACCOUNT_ID>:role/<ExternalDNSRole>
-```
-
-The workshop will install ExternalDNS automatically when `BASE_DOMAIN` is set (it is fixed to `gremlinpoc.com`).
-
-### LOCUST_HOST automation
-
-- After deployment, `scripts/operations/deploy_otel.sh` sets `LOCUST_HOST` on the load-generator Deployment using:
-  - Preferred FQDN from `${CLUSTER_NAME}-frontend.gremlinpoc.com` if DNS is present
-  - Fallback to ALB hostname from the `frontend-proxy` Ingress until DNS propagates
+Automated deployment of OpenTelemetry Demo application with integrated monitoring (Prometheus/Grafana) and Gremlin chaos engineering on AWS EKS. Infrastructure managed by Terraform, applications deployed via Kubernetes.
 
 ---
 
-## Directory Structure
+## Table of Contents
 
-- `build_scripts/` - Core deployment scripts
-  - `demo/otel-demo-values-enhanced.yaml` - **Production-ready configuration**
-  - `demo/locustfile.py` - **Enhanced chaos testing scenarios**
-  - `demo/update_loadgen_alb.sh` - ALB integration script
-- `config/` - Configuration files and patches
-- `helper_scripts/` - Utility scripts for maintenance
-- `monitoring/` - Monitoring stack configurations
-- `patches/` - Kubernetes patches (legacy - mostly replaced by enhanced config)
+- [What This Does](#what-this-does)
+- [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
+- [Understanding the Flags](#understanding-the-flags)
+- [Credential Management](#credential-management)
+- [Common Workflows](#common-workflows)
+- [What Gets Created](#what-gets-created)
+- [Troubleshooting](#troubleshooting)
 
-## Configuration Modes
+---
 
-### Enhanced Configuration (Recommended)
-- **Production-ready** with security contexts and resource limits
-- **ALB ingress** with automatic load balancer provisioning
-- **Advanced load testing** with Gremlin chaos scenarios
-- **Comprehensive monitoring** with OpenSearch logging
-- **Auto-scaling** and health check integration
+## What This Does
 
-### Basic Configuration (Legacy)
-- Standard OpenTelemetry demo setup
-- Manual load balancer creation
-- Basic load testing scenarios
-- Minimal resource configuration
-# Deploy with enhanced visual output
-cd build_scripts/demo
-./otel_demo.sh
-```
+This workshop script automates the deployment of:
 
-#### 3. Setup Monitoring Platforms (Number-Based)
-```bash
-cd monitoring
-./setup_monitoring_numbered.sh 1  # Prometheus & Grafana
-./setup_monitoring_numbered.sh 2  # Dynatrace (optional)
-./setup_monitoring_numbered.sh 3  # New Relic (optional)
-cd monitoring
+1. **Infrastructure** (via Terraform)
+   - EKS cluster with managed node groups
+   - Application Load Balancer (ALB) with HTTPS
+   - Route53 DNS records (demo-frontend.{subdomain}.gremlinpoc.com)
+   - IAM roles and policies
+   - Secrets Manager integration for credentials
 
-# Setup individual platforms
-./setup_monitoring.sh --dynatrace     # Dynatrace + Prometheus
-./setup_monitoring.sh --newrelic      # New Relic + Prometheus  
-./setup_monitoring.sh --grafana       # Grafana health checks
-./setup_monitoring.sh --prometheus-only  # Prometheus only
+2. **Applications** (via Kubernetes/Helm)
+   - OpenTelemetry Demo (20+ microservices)
+   - Prometheus + Grafana monitoring stack
+   - Gremlin agent for chaos engineering
+   - Optional: Failure Flags for controlled failures
 
-# Setup multiple platforms
-./setup_monitoring.sh --dynatrace --newrelic --grafana
+3. **Integration**
+   - ALB routes traffic to frontend and monitoring
+   - Gremlin health checks monitor services
+   - Automatic service discovery and tagging
 
-# Setup all platforms
-./setup_monitoring.sh --all
-```
+**Result:** A fully functional demo environment accessible at `https://demo-frontend.{subdomain}.gremlinpoc.com`
 
-## Repository Structure
+---
 
-### build_scripts/
-**Main deployment and configuration scripts:**
-- `cluster/create.sh` - Creates EKS cluster with VPC CNI and security groups
-- `cluster/base_setup.sh` - Configures base cluster components and monitoring
-- `demo/otel_demo.sh` - **Enhanced** OpenTelemetry Demo with progressive ASCII art deployment
-- `demo/otel-demo-values.yaml` - **Updated** Helm values with fixed Prometheus and accounting configs
-- `gremlin/install.sh` - Interactive Gremlin installation with team/cluster configuration
-- `load-balancer/install.sh` - Load balancer setup for service exposure
+## Prerequisites
 
-### monitoring/
-**Unified observability platform management:**
-- `setup_monitoring.sh` - **Enhanced** master script with individual platform options
-- `prometheus/install/install.sh` - Baseline Prometheus/Grafana stack installation
-- `dynatrace/install/install.sh` - **Fully automated** Dynatrace setup with health checks
-- `newrelic/install/install.sh` - **Enhanced** New Relic setup with API key automation
-- `newrelic/auth/generate_api_key.sh` - **NEW** Automated New Relic API key generation
-- `newrelic/health_check/setup_health_check.sh` - **Enhanced** with Gremlin integration
-- `grafana/install/install.sh` - **NEW** Automated Grafana health check setup
-- `grafana/auth/create_grafana_token.sh` - **NEW** Automated Grafana token generation
-- `grafana/health_check/setup_health_check.sh` - **Existing** Grafana alert management
-- `datadog/install/install.sh` - DataDog integration (placeholder)
+### Required Tools
 
-### helper_scripts/
-**Utility and support scripts:**
-- `configure_otel_demo_observability.sh` - OpenTelemetry observability configuration
-- `cleanup/` - Comprehensive cluster and resource cleanup scripts
-- `templates/` - YAML configuration templates
-
-**Dynatrace entity mapping and configuration:**
-- `generate_entity_mapping.sh` - Creates entity mapping between service names and Dynatrace entity IDs
-
-### Additional Tools
-**Standalone utility scripts in root directory:**
-- `create_grafana_api_key.sh` - Legacy Grafana API key creation (use monitoring/grafana/auth/ instead)
-- `generate_grafana_token.sh` - Legacy Grafana token generation (use monitoring/grafana/auth/ instead)
-- `get_nobl9_token.sh` - Nobl9 SLO platform token generation and status checking
-- `run_gremlin_experiments.sh` - Comprehensive Gremlin chaos engineering experiment runner
-
-## Advanced Usage
-
-### Monitoring Platform Management
-
-The unified monitoring framework provides comprehensive platform management:
+Install these tools before running the workshop:
 
 ```bash
-cd monitoring
+# AWS CLI
+brew install awscli
+aws configure  # Set your credentials
 
-# Check status of all platforms
-./setup_monitoring.sh --status
+# Terraform (>= 1.13)
+brew install terraform
 
-# Remove all monitoring installations
-./setup_monitoring.sh --remove
+# kubectl
+brew install kubectl
 
-# Install with custom cluster name
-./setup_monitoring.sh --cluster-name my-cluster --dynatrace
+# Helm v3
+brew install helm
 
-# Skip health check setup
-./setup_monitoring.sh --dynatrace --no-health-checks
+# jq (JSON processor)
+brew install jq
 ```
 
-### Automated API Key Generation
+### AWS Account Setup
 
-Each platform includes automated credential management:
+1. **AWS Credentials** - Configure with appropriate permissions:
+   ```bash
+   aws configure
+   # AWS Access Key ID: YOUR_KEY
+   # AWS Secret Access Key: YOUR_SECRET
+   # Default region: us-east-2
+   ```
+
+2. **Required AWS Permissions:**
+   - EKS cluster creation
+   - EC2 (VPC, subnets, security groups)
+   - IAM role/policy creation
+   - Route53 DNS management
+   - Secrets Manager access
+   - S3 (for Terraform state)
+
+3. **Terraform State Backend** (already configured):
+   - S3 bucket: `gremlin-terraform-state-us-east-2`
+   - DynamoDB table: `gremlin-terraform-locks`
+
+### Gremlin Account
+
+You need a Gremlin account to use chaos engineering features:
+
+1. **Sign up:** https://app.gremlin.com/signup
+2. **Get credentials:**
+   - Go to Settings → Teams
+   - Download your team certificate and private key
+   - Note your Team ID (format: `438c58ec-03db-47ac-8c58-ec03db67ac42`)
+
+---
+
+## Quick Start
+
+### Option 1: With Secrets Manager (Recommended)
+
+**Step 1: Store your Gremlin credentials in AWS Secrets Manager**
 
 ```bash
-# Generate New Relic API key
-./monitoring/newrelic/auth/generate_api_key.sh
+# Set your name (used as owner)
+OWNER="alex.smith"
+REGION="us-east-2"
 
-# Create Grafana service account and token
-./monitoring/grafana/auth/create_grafana_token.sh \
-  --grafana-url http://localhost:3000 \
-  --service-account-name gremlin-health-check
+# Create secrets (one-time setup)
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_id" \
+    --description "Gremlin Team ID for ${OWNER}" \
+    --secret-string "438c58ec-03db-47ac-8c58-ec03db67ac42" \
+    --region "$REGION"
+
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_certificate" \
+    --description "Gremlin Team Certificate for ${OWNER}" \
+    --secret-string "$(cat ~/Downloads/team-certificate.pem)" \
+    --region "$REGION"
+
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_private_key" \
+    --description "Gremlin Team Private Key for ${OWNER}" \
+    --secret-string "$(cat ~/Downloads/team-private-key.pem)" \
+    --region "$REGION"
 ```
 
-### Health Check Integration
-
-All platforms support automated health check setup with Gremlin integration:
+**Step 2: Deploy the workshop**
 
 ```bash
-# Setup New Relic health checks
-./monitoring/newrelic/health_check/setup_health_check.sh \
-  --api-key YOUR_API_KEY \
-  --namespace otel-demo \
-  --service frontend
-
-# Setup Grafana health checks  
-./monitoring/grafana/health_check/setup_health_check.sh \
-  --grafana-url http://localhost:3000 \
-  --api-key YOUR_TOKEN \
-  --alert-name otel-demo-health-check
+./workshop.sh \
+    --subdomain alexs \
+    --owner alex.smith \
+    --enable-eks \
+    --action create_new
 ```
 
-### Gremlin Chaos Engineering
+That's it! The script will:
+- Auto-detect your Gremlin credentials from Secrets Manager
+- Create infrastructure with Terraform (~15-20 minutes)
+- Deploy all applications
+- Configure monitoring and chaos engineering
 
-Enhanced Gremlin installation with interactive configuration:
+### Option 2: With Environment Variables (Quick Test)
 
 ```bash
-cd build_scripts/gremlin
-./install.sh
+# Export credentials
+export GREMLIN_TEAM_ID="438c58ec-03db-47ac-8c58-ec03db67ac42"
+export GREMLIN_TEAM_CERTIFICATE="$(cat ~/Downloads/team-certificate.pem)"
+export GREMLIN_TEAM_PRIVATE_KEY="$(cat ~/Downloads/team-private-key.pem)"
 
-# Or with parameters
-./install.sh --team-id YOUR_TEAM_ID \
-              --team-secret YOUR_SECRET \
-              --cluster-id custom-cluster-name \
-              --tag-namespaces otel-demo,monitoring
+# Deploy
+./workshop.sh \
+    --subdomain test \
+    --owner test.user \
+    --enable-eks \
+    --action create_new
 ```
 
-## Platform Status & Features
+---
 
-| Platform | Installation | Token Generation | Health Checks | Gremlin Integration | Status |
-|----------|-------------|------------------|---------------|-------------------|---------|
-| **Dynatrace** | ✅ Fully Automated | ✅ Automated | ✅ Automated | ✅ Complete | **Production Ready** |
-| **New Relic** | ✅ Fully Automated | ✅ **NEW** Automated | ✅ **Enhanced** | ✅ Complete | **Production Ready** |
-| **Grafana** | ✅ **NEW** Integrated | ✅ **NEW** Automated | ✅ **NEW** Automated | ✅ Complete | **Production Ready** |
-| **DataDog** | ⚠️ Placeholder | ❌ Manual | ❌ Manual | ❌ None | **Planned** |
-| **Nobl9** | ⚠️ Experimental | ✅ Available | ⚠️ Basic | ⚠️ Partial | **Experimental** |
+## Understanding the Flags
 
-## Service Access
+### Required Flags
 
-### Grafana Dashboard
+| Flag | Description | Example | Notes |
+|------|-------------|---------|-------|
+| `--subdomain` | Unique identifier for your deployment | `alexs`, `demo1`, `test` | Used for DNS: `demo-frontend.{subdomain}.gremlinpoc.com` |
+| `--owner` | Your name/identifier | `alex.smith`, `jane.doe` | Used for resource tagging and credential lookup |
+| `--enable-eks` | Enable EKS cluster creation | (flag, no value) | Required for Kubernetes deployment |
+| `--action` | What to do | `create_new`, `deploy_existing`, `cleanup` | See [Actions](#actions) below |
+
+### Optional Flags
+
+| Flag | Description | Default | Example |
+|------|-------------|---------|----------|
+| `--enable-ecs-fargate` | Also create ECS Fargate cluster | `false` | `--enable-ecs-fargate` |
+| `--monitoring` | Monitoring platform | `prometheus` | `--monitoring grafana` |
+| `--enable-failure-flags` | Deploy Failure Flags sidecar | `false` | `--enable-failure-flags` |
+| `--install-istio` | Install Istio service mesh | `false` | `--install-istio` |
+| `--region` | AWS region | `us-east-2` | `--region us-west-2` |
+| `--fcm-version` | fictional-computing-machine version | `main` | `--fcm-version v1.2.0` |
+| `--dry-run` | Show what would happen | (none) | `--dry-run` |
+
+### Credential Flags (Optional)
+
+If you don't want to use Secrets Manager auto-detection:
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--gremlin-team-id-arn` | ARN of Team ID secret | `arn:aws:secretsmanager:us-east-2:123:secret:...` |
+| `--gremlin-team-certificate-arn` | ARN of certificate secret | `arn:aws:secretsmanager:us-east-2:123:secret:...` |
+| `--gremlin-team-private-key-arn` | ARN of private key secret | `arn:aws:secretsmanager:us-east-2:123:secret:...` |
+
+### Actions
+
+| Action | What It Does | When to Use |
+|--------|--------------|-------------|
+| `create_new` | Create infrastructure + deploy apps | First time deployment |
+| `deploy_existing` | Deploy apps to existing infrastructure | Update applications |
+| `gremlin_only` | Install Gremlin on existing cluster | Add chaos engineering |
+| `cleanup` | Destroy everything | Remove deployment |
+
+---
+
+## Credential Management
+
+### How Credentials Are Resolved
+
+The script tries multiple methods in this order:
+
+1. **Explicit ARNs** (if provided via `--gremlin-team-id-arn`, etc.)
+2. **Owner-based lookup** (checks `{owner}/gremlin_*` secrets in Secrets Manager)
+3. **Environment variables** (`GREMLIN_TEAM_ID`, `GREMLIN_TEAM_CERTIFICATE`, etc.)
+4. **Fail with helpful error**
+
+### Method 1: Secrets Manager (Recommended)
+
+**Why?**
+- ✅ Secure (no credentials in shell history)
+- ✅ Automatic (just provide `--owner`)
+- ✅ Centralized (one place to update)
+- ✅ Auditable (AWS CloudTrail logs access)
+
+**Setup:**
+
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80
-# Access: http://localhost:3000
-# Username: admin
-# Password: Retrieved from Kubernetes secret (auto-detected by scripts)
+OWNER="your.name"
+
+# Create Team ID secret
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_id" \
+    --secret-string "YOUR_TEAM_ID_HERE" \
+    --region us-east-2
+
+# Create certificate secret
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_certificate" \
+    --secret-string "$(cat /path/to/team-certificate.pem)" \
+    --region us-east-2
+
+# Create private key secret
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_private_key" \
+    --secret-string "$(cat /path/to/team-private-key.pem)" \
+    --region us-east-2
 ```
 
-### Prometheus Metrics
+**Usage:**
 ```bash
-kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090
-# Access: http://localhost:9090
+./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
+# Credentials automatically loaded!
 ```
 
-### OpenTelemetry Demo Services
+### Method 2: Environment Variables
+
+**Why?**
+- ✅ Quick for testing
+- ✅ No AWS setup needed
+- ⚠️ Less secure (visible in process list)
+
+**Setup:**
 ```bash
-# Use the provided port-forward script after deployment
-./build_scripts/demo/port-forward-services.sh
-# Access various services on different ports
+export GREMLIN_TEAM_ID="438c58ec-03db-47ac-8c58-ec03db67ac42"
+export GREMLIN_TEAM_CERTIFICATE="$(cat team-certificate.pem)"
+export GREMLIN_TEAM_PRIVATE_KEY="$(cat team-private-key.pem)"
 ```
 
-### Jaeger Tracing
+**Usage:**
 ```bash
-kubectl port-forward -n otel-demo svc/jaeger-query 16686:16686
-# Access: http://localhost:16686
+./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
 ```
+
+### Method 3: Explicit ARNs
+
+**Why?**
+- ✅ Full control over which secrets to use
+- ✅ Can use team-shared secrets
+
+**Usage:**
+```bash
+./workshop.sh \
+    --subdomain demo \
+    --owner your.name \
+    --enable-eks \
+    --gremlin-team-id-arn "arn:aws:secretsmanager:us-east-2:123:secret:team/gremlin_id" \
+    --gremlin-team-certificate-arn "arn:aws:secretsmanager:us-east-2:123:secret:team/gremlin_cert" \
+    --gremlin-team-private-key-arn "arn:aws:secretsmanager:us-east-2:123:secret:team/gremlin_key" \
+    --action create_new
+```
+
+---
+
+## Common Workflows
+
+### Scenario 1: First Time User with Gremlin Team ID
+
+**You have:**
+- Gremlin Team ID: `438c58ec-03db-47ac-8c58-ec03db67ac42`
+- Team certificate and private key files downloaded
+
+**Steps:**
+
+1. **Store credentials in Secrets Manager (one-time):**
+   ```bash
+   OWNER="your.name"
+   
+   aws secretsmanager create-secret \
+       --name "${OWNER}/gremlin_team_id" \
+       --secret-string "438c58ec-03db-47ac-8c58-ec03db67ac42" \
+       --region us-east-2
+   
+   aws secretsmanager create-secret \
+       --name "${OWNER}/gremlin_team_certificate" \
+       --secret-string "$(cat ~/Downloads/team-certificate.pem)" \
+       --region us-east-2
+   
+   aws secretsmanager create-secret \
+       --name "${OWNER}/gremlin_team_private_key" \
+       --secret-string "$(cat ~/Downloads/team-private-key.pem)" \
+       --region us-east-2
+   ```
+
+2. **Deploy:**
+   ```bash
+   ./workshop.sh \
+       --subdomain demo1 \
+       --owner your.name \
+       --enable-eks \
+       --action create_new
+   ```
+
+3. **Access your deployment:**
+   - Frontend: `https://demo-frontend.demo1.gremlinpoc.com`
+   - Grafana: `https://monitoring.demo1.gremlinpoc.com`
+   - Gremlin UI: `https://app.gremlin.com`
+
+### Scenario 2: Quick Test Without Secrets Manager
+
+**You have:**
+- Gremlin credentials files
+- Want to test quickly
+
+**Steps:**
+
+```bash
+# Export credentials
+export GREMLIN_TEAM_ID="438c58ec-03db-47ac-8c58-ec03db67ac42"
+export GREMLIN_TEAM_CERTIFICATE="$(cat ~/Downloads/team-certificate.pem)"
+export GREMLIN_TEAM_PRIVATE_KEY="$(cat ~/Downloads/team-private-key.pem)"
+
+# Deploy
+./workshop.sh \
+    --subdomain quicktest \
+    --owner test.user \
+    --enable-eks \
+    --action create_new
+```
+
+### Scenario 3: Deploy with Failure Flags
+
+**You want:**
+- Full deployment with controlled failure injection
+
+**Steps:**
+
+```bash
+./workshop.sh \
+    --subdomain demo-ff \
+    --owner your.name \
+    --enable-eks \
+    --enable-failure-flags \
+    --action create_new
+```
+
+**What you get:**
+- Failure Flags sidecar on checkout service
+- Ability to inject failures via Gremlin UI
+- Health checks monitoring service availability
+
+### Scenario 4: Update Applications Only
+
+**You have:**
+- Existing infrastructure
+- Want to update/redeploy applications
+
+**Steps:**
+
+```bash
+./workshop.sh \
+    --subdomain demo1 \
+    --action deploy_existing
+```
+
+This will:
+- Load existing Terraform outputs
+- Redeploy OpenTelemetry Demo
+- Update monitoring stack
+- Refresh Gremlin configuration
+
+### Scenario 5: Add Gremlin to Existing Cluster
+
+**You have:**
+- Running EKS cluster with applications
+- Want to add chaos engineering
+
+**Steps:**
+
+```bash
+./workshop.sh \
+    --subdomain demo1 \
+    --owner your.name \
+    --action gremlin_only
+```
+
+### Scenario 6: Clean Up Everything
+
+**You want:**
+- Remove all infrastructure
+- Delete cluster and resources
+
+**Steps:**
+
+```bash
+./workshop.sh \
+    --subdomain demo1 \
+    --action cleanup
+```
+
+This will:
+1. Delete Kubernetes ingresses (prevents hanging ALBs)
+2. Delete LoadBalancer services
+3. Run `terraform destroy`
+4. Remove all AWS resources
+
+---
+
+## What Gets Created
+
+### Infrastructure (Terraform)
+
+| Resource | Name/Pattern | Purpose |
+|----------|--------------|---------|
+| **EKS Cluster** | `{subdomain}-eks` | Kubernetes cluster |
+| **Node Group** | `{subdomain}-eks-node-group` | EC2 instances for workloads |
+| **VPC** | `{subdomain}-vpc` | Network isolation |
+| **ALB** | `k8s-{subdomain}-alb-*` | Load balancer for HTTP(S) traffic |
+| **Target Groups** | `k8s-{subdomain}-otel-*`<br>`k8s-{subdomain}-monitoring-*` | Route traffic to services |
+| **Route53 Records** | `demo-frontend.{subdomain}.gremlinpoc.com`<br>`monitoring.{subdomain}.gremlinpoc.com` | DNS names |
+| **IAM Roles** | `{subdomain}-eks-cluster-role`<br>`{subdomain}-eks-node-role`<br>`{subdomain}-alb-controller-role` | Permissions |
+| **Security Groups** | Multiple for cluster, nodes, ALB | Network security |
+
+### Applications (Kubernetes)
+
+| Component | Namespace | Services | Purpose |
+|-----------|-----------|----------|---------|
+| **OpenTelemetry Demo** | `otel-demo` | 20+ microservices | Demo application |
+| **Frontend** | `otel-demo` | `opentelemetry-demo-frontendproxy` | User interface |
+| **Checkout** | `otel-demo` | `opentelemetry-demo-checkoutservice` | Payment processing |
+| **Cart** | `otel-demo` | `opentelemetry-demo-cartservice` | Shopping cart |
+| **Product Catalog** | `otel-demo` | `opentelemetry-demo-productcatalogservice` | Product data |
+| **Prometheus** | `monitoring` | `prometheus-server` | Metrics collection |
+| **Grafana** | `monitoring` | `grafana` | Dashboards |
+| **Gremlin Agent** | `gremlin` | `gremlin` | Chaos engineering |
+| **Failure Flags** | `otel-demo` | Sidecar on checkout | Controlled failures |
+
+### Gremlin Integration
+
+| Feature | What Gets Created | Where to See It |
+|---------|-------------------|-----------------|
+| **Service Discovery** | All OTel Demo services tagged with `gremlin.com/service-id` | Gremlin UI → Services |
+| **Health Checks** | Prometheus alerts monitoring<br>Grafana datasource monitoring | Gremlin UI → Reliability → Status Checks |
+| **Failure Flags** | Sidecar on checkout service<br>Ingress proxy (port 5035)<br>Dependency proxy (port 5034) | Gremlin UI → Failure Flags |
+| **Experiments** | Available for all discovered services | Gremlin UI → Attacks |
+
+### DNS and URLs
+
+After deployment completes, you'll have:
+
+| Service | URL | What It Does |
+|---------|-----|--------------|
+| **Frontend** | `https://demo-frontend.{subdomain}.gremlinpoc.com` | OpenTelemetry Demo UI |
+| **Grafana** | `https://monitoring.{subdomain}.gremlinpoc.com` | Monitoring dashboards |
+| **Prometheus** | `https://monitoring.{subdomain}.gremlinpoc.com/prometheus` | Metrics query interface |
+| **Gremlin** | `https://app.gremlin.com` | Chaos engineering control plane |
+
+### Naming Conventions
+
+**How resources are named:**
+
+1. **Subdomain** → Used for DNS and resource prefixes
+   - Example: `--subdomain alexs` creates `alexs-eks` cluster
+
+2. **Owner** → Used for tagging and credential lookup
+   - Example: `--owner alex.smith` tags resources with `Owner=alex.smith`
+
+3. **Gremlin Services** → Auto-discovered with descriptive names
+   - `checkout-service` (from `opentelemetry-demo-checkoutservice`)
+   - `payment-service` (from `opentelemetry-demo-paymentservice`)
+   - `cart-service` (from `opentelemetry-demo-cartservice`)
+
+4. **Health Checks** → Named after monitored service
+   - `prometheus-firing-alerts` (monitors Prometheus)
+   - `grafana-datasource-health` (monitors Grafana)
+
+**Example for `--subdomain demo1 --owner alex.smith`:**
+
+```
+EKS Cluster: demo1-eks
+ALB: k8s-demo1-alb-1234567890
+Frontend URL: https://demo-frontend.demo1.gremlinpoc.com
+Monitoring URL: https://monitoring.demo1.gremlinpoc.com
+Gremlin Services: checkout-service, payment-service, cart-service, etc.
+Health Checks: prometheus-firing-alerts, grafana-datasource-health
+Tags: Owner=alex.smith, Subdomain=demo1, ManagedBy=terraform
+```
+
+---
 
 ## Troubleshooting
 
 ### Common Issues
 
-**1. Prometheus Pod CrashLoopBackOff**
-- **Cause**: Duplicate YAML configuration sections
-- **Fix**: Use updated `otel-demo-values.yaml` with fixed Prometheus config
+#### 1. "Missing required argument: --subdomain"
 
-**2. Accounting Service Segmentation Fault**
-- **Cause**: Insufficient memory allocation
-- **Fix**: Increased memory limits in Helm values (already applied)
+**Problem:** You're using the new Terraform-based workflow but forgot required flags.
 
-**3. Jaeger Not Showing Traces**
-- **Cause**: Incorrect OTel Collector exporter configuration
-- **Fix**: Use OTLP exporter instead of deprecated Jaeger exporter (already fixed)
+**Solution:**
+```bash
+# Old way (still works for backwards compatibility)
+./workshop.sh --cluster-name test --action build_new
 
-**4. API Key Generation Failures**
-- **Cause**: Missing authentication or network issues
-- **Fix**: Verify platform credentials and network connectivity
+# New way (required for Terraform)
+./workshop.sh --subdomain test --owner your.name --enable-eks --action create_new
+```
+
+#### 2. "No Gremlin credentials found"
+
+**Problem:** Script can't find your Gremlin credentials.
+
+**Solution - Check in order:**
+
+1. **Secrets Manager:** Do you have secrets created?
+   ```bash
+   aws secretsmanager list-secrets --query "SecretList[?contains(Name, 'your.name/gremlin')]"
+   ```
+
+2. **Environment Variables:** Are they set?
+   ```bash
+   echo $GREMLIN_TEAM_ID
+   echo $GREMLIN_TEAM_CERTIFICATE
+   ```
+
+3. **Explicit ARNs:** Did you provide them?
+   ```bash
+   ./workshop.sh --gremlin-team-id-arn "arn:aws:..." ...
+   ```
+
+#### 3. "Terraform workspace not found"
+
+**Problem:** Trying to use `deploy_existing` or `cleanup` but no workspace exists.
+
+**Solution:**
+```bash
+# Check if workspace exists
+ls -la terraform/workspace/
+
+# If missing, run create_new first
+./workshop.sh --subdomain demo1 --owner your.name --enable-eks --action create_new
+```
+
+#### 4. "ALB not becoming healthy"
+
+**Problem:** ALB target groups show unhealthy targets.
+
+**Solution:**
+```bash
+# Check pod status
+kubectl get pods -n otel-demo
+kubectl get pods -n monitoring
+
+# Check service endpoints
+kubectl get svc -n otel-demo
+kubectl get svc -n monitoring
+
+# Check ALB target groups in AWS Console
+# Ensure security groups allow traffic from ALB to pods
+```
+
+#### 5. "DNS records not created"
+
+**Problem:** Can't access `demo-frontend.{subdomain}.gremlinpoc.com`
+
+**Solution:**
+1. **Check Route53 hosted zone exists:**
+   ```bash
+   aws route53 list-hosted-zones --query "HostedZones[?Name=='gremlinpoc.com.']"
+   ```
+
+2. **Check Terraform outputs:**
+   ```bash
+   cd terraform/workspace/{subdomain}
+   terraform output
+   ```
+
+3. **Verify ALB DNS:**
+   ```bash
+   kubectl get ingress -A
+   # Look for ALB DNS name
+   ```
+
+#### 6. "Gremlin services not showing up"
+
+**Problem:** Services not appearing in Gremlin UI.
+
+**Solution:**
+```bash
+# Check Gremlin agent is running
+kubectl get pods -n gremlin
+
+# Check service annotations
+kubectl get svc -n otel-demo -o yaml | grep gremlin.com/service-id
+
+# Manually annotate if missing
+kubectl annotate svc -n otel-demo opentelemetry-demo-checkoutservice gremlin.com/service-id=checkout-service
+```
+
+#### 7. "Health checks not working"
+
+**Problem:** Gremlin health checks show as failing.
+
+**Solution:**
+```bash
+# Check if health check endpoints are accessible
+kubectl port-forward -n monitoring svc/prometheus-server 9090:80
+curl http://localhost:9090/api/v1/query?query=ALERTS
+
+# Check Grafana datasource
+kubectl port-forward -n monitoring svc/grafana 3000:80
+curl http://localhost:3000/api/health
+```
 
 ### Getting Help
 
-For platform-specific issues:
-- Check the `monitoring/docs/` directory for detailed troubleshooting guides
-- Review configuration files in `monitoring/config/`
-- Examine logs: `kubectl logs -n <namespace> <pod-name>`
+**Check logs:**
+```bash
+# Terraform logs
+cd terraform/workspace/{subdomain}
+terraform show
 
-## Security Considerations
+# Kubernetes logs
+kubectl logs -n otel-demo deployment/opentelemetry-demo-frontendproxy
+kubectl logs -n gremlin daemonset/gremlin
 
-- API keys and tokens are stored securely outside the repository
-- Reference file: `api_keys_reference.txt` (not committed to git)
-- Scripts prompt for credentials or read from environment variables
-- Kubernetes secrets are used for sensitive data storage
+# Script logs
+./workshop.sh --dry-run --action create_new  # See what would happen
+```
+
+**Validate configuration:**
+```bash
+# Check AWS credentials
+aws sts get-caller-identity
+
+# Check kubectl context
+kubectl config current-context
+
+# Check Terraform version
+terraform version  # Should be >= 1.13
+```
+
+**Clean slate:**
+```bash
+# If all else fails, clean up and start over
+./workshop.sh --subdomain demo1 --action cleanup
+./workshop.sh --subdomain demo1 --owner your.name --enable-eks --action create_new
+```
+
+---
+
+## Advanced Configuration
+
+### Using Different Terraform Versions
+
+```bash
+# Pin to specific fictional-computing-machine version
+FCM_VERSION=v1.2.0 ./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
+
+# Or set in environment
+export FCM_VERSION=v1.2.0
+./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
+```
+
+### Deploy to Different Region
+
+```bash
+./workshop.sh \
+    --subdomain demo \
+    --owner your.name \
+    --enable-eks \
+    --region us-west-2 \
+    --action create_new
+```
+
+### Enable Both EKS and ECS Fargate
+
+```bash
+./workshop.sh \
+    --subdomain demo \
+    --owner your.name \
+    --enable-eks \
+    --enable-ecs-fargate \
+    --action create_new
+```
+
+### Dry Run (See What Would Happen)
+
+```bash
+./workshop.sh \
+    --subdomain demo \
+    --owner your.name \
+    --enable-eks \
+    --dry-run \
+    --action create_new
+```
+
+---
+
+## Architecture Overview
+
+### Infrastructure Layer (Terraform)
+
+```
+fictional-computing-machine (GitHub)
+    ↓ (referenced via Git URL)
+terraform/workspace/{subdomain}/
+    ├── main.tf          (single module reference)
+    ├── variables.tf     (deployment config)
+    └── terraform.tf     (backend config)
+    ↓ (terraform apply)
+AWS Resources:
+    ├── EKS Cluster
+    ├── ALB + Target Groups
+    ├── Route53 DNS
+    ├── IAM Roles
+    └── Secrets Manager
+```
+
+### Application Layer (Kubernetes)
+
+```
+workshop.sh
+    ↓
+scripts/operations/
+    ├── deploy_otel.sh        → OpenTelemetry Demo
+    ├── deploy_failure_flags.sh → Failure Flags
+    └── gremlin_install.sh    → Gremlin Agent
+    ↓
+Kubernetes Resources:
+    ├── otel-demo namespace (20+ microservices)
+    ├── monitoring namespace (Prometheus, Grafana)
+    └── gremlin namespace (Chaos agent)
+```
+
+### Integration Points
+
+```
+Terraform Outputs → Environment Variables → Application Scripts
+    ↓                    ↓                        ↓
+CLUSTER_NAME        AWS_REGION              kubectl commands
+ALB_DNS_NAME        GREMLIN_*_ARN           helm installs
+TARGET_GROUP_ARN    SUBDOMAIN               service annotations
+```
+
+---
+
+## File Structure
+
+```
+workshop/
+├── workshop.sh                    # Main orchestration script
+├── lib/
+│   ├── terraform.sh              # Terraform wrapper (NEW)
+│   ├── common.sh                 # Shared utilities
+│   ├── cluster.sh                # Cluster operations
+│   ├── monitoring.sh             # Monitoring setup
+│   └── ui.sh                     # Interactive UI
+├── terraform/
+│   └── workspace/                # Generated per deployment
+│       └── {subdomain}/
+│           ├── main.tf           # FCM module reference
+│           ├── variables.tf
+│           └── terraform.tf
+├── scripts/
+│   ├── operations/
+│   │   ├── deploy_otel.sh
+│   │   ├── deploy_failure_flags.sh
+│   │   └── cluster_cleanup.sh
+│   └── gremlin_install.sh
+├── config/
+│   └── gremlin/
+│       ├── gremlin_annotations.sh
+│       └── healthchecks.sh
+└── README.md                     # This file
+```
+
+---
+
+## Contributing
+
+### Updating Infrastructure Modules
+
+When Gremlin updates the `fictional-computing-machine` repository:
+
+1. **Test new version:**
+   ```bash
+   FCM_VERSION=v1.3.0 ./workshop.sh --subdomain test --owner your.name --enable-eks --action create_new
+   ```
+
+2. **Update default version:**
+   ```bash
+   vim lib/terraform.sh
+   # Change: FCM_VERSION="${FCM_VERSION:-v1.3.0}"
+   ```
+
+3. **Commit and push:**
+   ```bash
+   git add lib/terraform.sh
+   git commit -m "Update fictional-computing-machine to v1.3.0"
+   git push
+   ```
+
+### Adding New Features
+
+1. Infrastructure changes → Update `fictional-computing-machine` repo
+2. Application changes → Update `workshop` scripts
+3. Keep separation clean!
+
+---
+
+## License
+
+This workshop is maintained by Gremlin for demonstration purposes.
