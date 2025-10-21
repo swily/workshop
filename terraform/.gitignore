@@ -1,0 +1,19 @@
+# Terraform state files
+workspace/*/terraform.tfstate
+workspace/*/terraform.tfstate.backup
+workspace/*/.terraform/
+workspace/*/.terraform.lock.hcl
+workspace/*/tfplan
+workspace/*/*.tfvars
+
+# Keep workspace directory structure
+!workspace/.gitkeep
+
+# Crash log files
+workspace/*/crash.log
+
+# Override files
+workspace/*/override.tf
+workspace/*/override.tf.json
+workspace/*/*_override.tf
+workspace/*/*_override.tf.json

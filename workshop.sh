@@ -12,26 +12,81 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/ui.sh"
 source "$SCRIPT_DIR/lib/cluster.sh"
 source "$SCRIPT_DIR/lib/monitoring.sh"
+source "$SCRIPT_DIR/lib/terraform.sh"
 
 # Enforce consolidated ingress mode (single ALB with path-based routing)
 export CONSOLIDATED_INGRESS=true
 
 # Parse command line arguments
 parse_arguments() {
-    # Internal defaults for HTTPS/DNS (no user input required)
-    HTTPS_MODE="${HTTPS_MODE:-off}"
-    BASE_DOMAIN="${BASE_DOMAIN:-}"
-    HOST_PREFIX="${HOST_PREFIX:-}"
-    ACM_CERT_ARN="${ACM_CERT_ARN:-}"
-
-    # Feature flags
+    # Terraform-compatible arguments
+    SUBDOMAIN=""
+    OWNER=""
+    ENABLE_EKS=false
+    ENABLE_ECS_FARGATE=false
+    
+    # Gremlin Secrets Manager ARNs (optional - can auto-resolve from owner)
+    GREMLIN_TEAM_ID_ARN=""
+    GREMLIN_TEAM_CERTIFICATE_ARN=""
+    GREMLIN_TEAM_PRIVATE_KEY_ARN=""
+    
+    # Legacy credential support (backwards compatible)
+    GREMLIN_TEAM_ID="${GREMLIN_TEAM_ID:-}"
+    GREMLIN_TEAM_SECRET="${GREMLIN_TEAM_SECRET:-}"
+    GREMLIN_API_KEY="${GREMLIN_API_KEY:-}"
+    
+    # Workshop-specific arguments
+    MONITORING_PLATFORM="prometheus"
     INSTALL_ISTIO=false
     ENABLE_FAILURE_FLAGS=false
+    WORKSHOP_ACTION=""
+    
+    # Terraform configuration
+    FCM_VERSION="${FCM_VERSION:-main}"
+    
+    # Legacy arguments (for backwards compatibility)
+    CLUSTER_NAME=""
+    AWS_REGION="${AWS_REGION:-us-east-2}"
+    BASE_DOMAIN="gremlinpoc.com"
+    HOST_PREFIX=""
 
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --subdomain)
+                SUBDOMAIN="$2"
+                shift 2
+                ;;
+            --owner)
+                OWNER="$2"
+                shift 2
+                ;;
+            --enable-eks)
+                ENABLE_EKS=true
+                shift
+                ;;
+            --enable-ecs-fargate)
+                ENABLE_ECS_FARGATE=true
+                shift
+                ;;
+            --gremlin-team-id-arn)
+                GREMLIN_TEAM_ID_ARN="$2"
+                shift 2
+                ;;
+            --gremlin-team-certificate-arn)
+                GREMLIN_TEAM_CERTIFICATE_ARN="$2"
+                shift 2
+                ;;
+            --gremlin-team-private-key-arn)
+                GREMLIN_TEAM_PRIVATE_KEY_ARN="$2"
+                shift 2
+                ;;
+            --fcm-version)
+                FCM_VERSION="$2"
+                shift 2
+                ;;
             --cluster-name)
                 CLUSTER_NAME="$2"
+                SUBDOMAIN="$2"  # Map to subdomain for backwards compatibility
                 shift 2
                 ;;
             --region)
@@ -40,15 +95,6 @@ parse_arguments() {
                 ;;
             --monitoring)
                 MONITORING_PLATFORM="$2"
-                shift 2
-                ;;
-            --https)
-                # Values: off | alb-acm
-                HTTPS_MODE="$2"
-                shift 2
-                ;;
-            --externaldns-iam-role-arn)
-                EXTERNALDNS_IAM_ROLE_ARN="$2"
                 shift 2
                 ;;
             --action)
@@ -75,14 +121,6 @@ parse_arguments() {
                 GREMLIN_API_KEY="$2"
                 shift 2
                 ;;
-            --skip-patches)
-                APPLY_PATCHES=false
-                shift
-                ;;
-            --skip-gremlin-enhancements)
-                APPLY_GREMLIN_ENHANCEMENTS=false
-                shift
-                ;;
             --dry-run)
                 export DRY_RUN=true
                 shift
@@ -98,25 +136,93 @@ parse_arguments() {
                 ;;
         esac
     done
+    
+    # Validation for Terraform-based deployments
+    if [[ "$WORKSHOP_ACTION" == "create_new" || "$WORKSHOP_ACTION" == "build_new" ]]; then
+        if [[ -z "$SUBDOMAIN" ]]; then
+            log_error "Missing required argument: --subdomain"
+            exit 1
+        fi
+        
+        if [[ -z "$OWNER" ]]; then
+            log_error "Missing required argument: --owner"
+            exit 1
+        fi
+        
+        if [[ "$ENABLE_EKS" == false && "$ENABLE_ECS_FARGATE" == false ]]; then
+            log_error "Must enable at least one platform: --enable-eks or --enable-ecs-fargate"
+            exit 1
+        fi
+    fi
+    
+    # Set CLUSTER_NAME from SUBDOMAIN if not set (for backwards compatibility)
+    if [[ -z "$CLUSTER_NAME" && -n "$SUBDOMAIN" ]]; then
+        CLUSTER_NAME="${SUBDOMAIN}-eks"
+    fi
+    
+    # Export for use in other scripts
+    export SUBDOMAIN OWNER ENABLE_EKS ENABLE_ECS_FARGATE
+    export GREMLIN_TEAM_ID_ARN GREMLIN_TEAM_CERTIFICATE_ARN GREMLIN_TEAM_PRIVATE_KEY_ARN
+    export FCM_VERSION MONITORING_PLATFORM INSTALL_ISTIO ENABLE_FAILURE_FLAGS
+    export CLUSTER_NAME AWS_REGION BASE_DOMAIN HOST_PREFIX
 }
-# NOTE: patch_consolidated_ingress_dns_tls() removed - Terraform creates ALB with TLS
-# Terraform ALB module handles certificate attachment and HTTPS configuration
+# Provision infrastructure with Terraform
+provision_infrastructure() {
+    log_section "Provisioning Infrastructure with Terraform"
+    
+    local workspace_dir=$(get_workspace_dir "$SUBDOMAIN")
+    
+    # Resolve Gremlin credentials if not explicitly provided
+    if [[ -z "$GREMLIN_TEAM_ID_ARN" && -n "$OWNER" ]]; then
+        log_info "No explicit Gremlin credentials provided, attempting owner-based lookup"
+        resolve_gremlin_credentials_from_owner "$OWNER" || {
+            log_warning "Owner-based credential lookup failed"
+            log_info "You can provide explicit ARNs with --gremlin-team-id-arn, etc."
+            return 1
+        }
+    fi
+    
+    # Create Terraform workspace
+    terraform_create_workspace \
+        "$SUBDOMAIN" \
+        "$OWNER" \
+        "$ENABLE_EKS" \
+        "$ENABLE_ECS_FARGATE" \
+        "$GREMLIN_TEAM_ID_ARN" \
+        "$GREMLIN_TEAM_CERTIFICATE_ARN" \
+        "$GREMLIN_TEAM_PRIVATE_KEY_ARN"
+    
+    # Initialize and validate Terraform
+    terraform_init "$workspace_dir"
+    terraform_validate "$workspace_dir"
+    
+    # Plan and apply
+    terraform_plan "$workspace_dir"
+    terraform_apply "$workspace_dir"
+    
+    # Export outputs to environment
+    export_terraform_outputs "$workspace_dir"
+    
+    # Fetch Gremlin credentials from Secrets Manager
+    fetch_gremlin_credentials
+    
+    # Update kubeconfig
+    update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
+    
+    log_success "Infrastructure provisioned successfully"
+}
+
 # Core workflow functions
 create_and_deploy() {
     log_section "Creating New Cluster and Deploying Everything"
     
-    # Create cluster
-    CREATE_ARGS=(
-        --cluster-name "$CLUSTER_NAME"
-        --region "$AWS_REGION"
-        --monitoring "$MONITORING_PLATFORM"
-    )
-    if [ "$INSTALL_ISTIO" = true ]; then
-        CREATE_ARGS+=(--install-istio)
-    fi
-    "$SCRIPT_DIR/scripts/operations/cluster_create.sh" "${CREATE_ARGS[@]}"
+    # Provision infrastructure with Terraform
+    provision_infrastructure
     
-    # Deploy OpenTelemetry demo (skip per-app ingress when CONSOLIDATED_INGRESS=true)
+    # Configure cluster base components (AWS LB Controller, Istio, etc.)
+    configure_cluster_base "$CLUSTER_NAME" "$INSTALL_ISTIO" "$MONITORING_PLATFORM"
+    
+    # Deploy OpenTelemetry demo
     CONSOLIDATED_INGRESS=true "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
         --cluster-name "$CLUSTER_NAME"
     
@@ -253,9 +359,35 @@ setup_gremlin_only() {
 cleanup_cluster_wrapper() {
     log_section "Cleaning up Cluster"
     
-    "$SCRIPT_DIR/scripts/operations/cluster_cleanup.sh" \
-        --cluster-name "$CLUSTER_NAME" \
-        --region "$AWS_REGION"
+    # Determine workspace directory
+    local workspace_dir
+    if [[ -n "$SUBDOMAIN" ]]; then
+        workspace_dir=$(get_workspace_dir "$SUBDOMAIN")
+    else
+        log_error "Cannot determine workspace. Please provide --subdomain"
+        return 1
+    fi
+    
+    # Check if workspace exists
+    if ! workspace_exists "$SUBDOMAIN"; then
+        log_warning "No Terraform workspace found for: $SUBDOMAIN"
+        log_info "Falling back to manual cleanup"
+        "$SCRIPT_DIR/scripts/operations/cluster_cleanup.sh" \
+            --cluster-name "$CLUSTER_NAME" \
+            --region "$AWS_REGION"
+        return
+    fi
+    
+    # Clean up Kubernetes resources first (prevents hanging ALBs)
+    log_info "Cleaning up Kubernetes resources..."
+    kubectl delete ingress -A --all --ignore-not-found=true 2>/dev/null || true
+    kubectl delete svc -A --field-selector spec.type=LoadBalancer --ignore-not-found=true 2>/dev/null || true
+    sleep 10
+    
+    # Destroy infrastructure with Terraform
+    terraform_destroy "$workspace_dir"
+    
+    log_success "Cluster cleanup completed"
 }
 
 # Interactive mode functions
@@ -302,10 +434,9 @@ main() {
         HOST_PREFIX="${CLUSTER_NAME}-"
     fi
 
-    # NOTE: ACM certificate auto-detection removed - Terraform handles TLS configuration
-    # Terraform ALB module manages certificates and HTTPS setup
+    # Set base domain
     BASE_DOMAIN="gremlinpoc.com"
-    export BASE_DOMAIN HOST_PREFIX
+    export BASE_DOMAIN
     
     # Execute the requested action
     case "$WORKSHOP_ACTION" in
