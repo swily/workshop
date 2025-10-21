@@ -109,7 +109,7 @@ ensure_namespace() {
     
     if ! kubectl get namespace "$namespace" &>/dev/null; then
         log_info "Creating namespace: $namespace"
-        kubectl create namespace "$namespace" || {
+        kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - || {
             log_error "Failed to create namespace: $namespace"
             return 1
         }
@@ -265,9 +265,9 @@ export_cluster_state() {
     "prometheus": "${prometheus_alb:+http://$prometheus_alb}"
   },
   "dns_mappings": {
-    "$cluster_name-frontend.gremlinpoc.com": "frontend",
-    "$cluster_name-grafana.gremlinpoc.com": "grafana_monitoring",
-    "$cluster_name-prometheus.gremlinpoc.com": "prometheus"
+    "demo-frontend.$cluster_name.gremlinpoc.com": "frontend",
+    "monitoring.$cluster_name.gremlinpoc.com": "grafana_monitoring",
+    "monitoring.$cluster_name.gremlinpoc.com/prometheus": "prometheus"
   },
   "deployment_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }

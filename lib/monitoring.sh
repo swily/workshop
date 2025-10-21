@@ -121,7 +121,6 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '${LISTEN_PORTS}'
-    external-dns.alpha.kubernetes.io/hostname: "${PROM_HOSTNAME}"
 ${TLS_ANNOTS}
 spec:
   rules:
@@ -375,10 +374,10 @@ setup_appdynamics_monitoring() {
     ensure_namespace "appdynamics"
     
     # Create secret for AppDynamics credentials (idempotent)
-    kubectl delete secret cluster-agent-secret --namespace appdynamics --ignore-not-found=true
     kubectl create secret generic cluster-agent-secret \
         --namespace appdynamics \
-        --from-literal=controller-key="$APPDYNAMICS_API_KEY"
+        --from-literal=controller-key="$APPDYNAMICS_API_KEY" \
+        --dry-run=client -o yaml | kubectl apply -f -
     
     # Install AppDynamics Cluster Agent
     cat << EOF | kubectl apply -f -
@@ -484,7 +483,6 @@ metadata:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '${LISTEN_PORTS}'
-    external-dns.alpha.kubernetes.io/hostname: "${GRAFANA_HOSTNAME}"
 ${TLS_ANNOTS}
 spec:
   rules:
@@ -781,7 +779,7 @@ verify_nameservers() {
 create_frontend_ingress() {
     log_info "Creating consolidated frontend ingress..."
     
-    local frontend_hostname="${HOST_PREFIX}demo-frontend.${BASE_DOMAIN}"
+    local frontend_hostname="demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
     local listen_ports='[{"HTTP":80}]'
     local tls_annots=""
     
@@ -795,7 +793,7 @@ create_frontend_ingress() {
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: consolidated-demo-ingress
+  name: ${CLUSTER_NAME:-default}-consolidated-demo-ingress
   namespace: otel-demo
   annotations:
     kubernetes.io/ingress.class: alb
@@ -810,7 +808,6 @@ metadata:
     alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
     alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
     alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
-    external-dns.alpha.kubernetes.io/hostname: "${frontend_hostname}"
 ${tls_annots}
 spec:
   ingressClassName: alb
@@ -834,7 +831,7 @@ EOF
 create_monitoring_ingress() {
     log_info "Creating monitoring ingress..."
     
-    local monitoring_hostname="${HOST_PREFIX}monitoring.${BASE_DOMAIN}"
+    local monitoring_hostname="monitoring.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
     local listen_ports='[{"HTTP":80}]'
     local tls_annots=""
     
@@ -848,7 +845,7 @@ create_monitoring_ingress() {
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: monitoring-ingress
+  name: ${CLUSTER_NAME:-default}-monitoring-ingress
   namespace: monitoring
   annotations:
     kubernetes.io/ingress.class: alb
@@ -861,7 +858,6 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
     alb.ingress.kubernetes.io/healthy-threshold-count: "2"
     alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
-    external-dns.alpha.kubernetes.io/hostname: "${monitoring_hostname}"
 ${tls_annots}
 spec:
   ingressClassName: alb
@@ -926,7 +922,7 @@ update_route53_records() {
     log_info "Creating DNS records..."
     
     # Frontend DNS record
-    local frontend_hostname="${HOST_PREFIX}demo-frontend.${BASE_DOMAIN}"
+    local frontend_hostname="demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
     aws route53 change-resource-record-sets --hosted-zone-id "$hz_id" --change-batch "{
         \"Changes\": [{
             \"Action\": \"UPSERT\",
@@ -943,7 +939,7 @@ update_route53_records() {
     }" >/dev/null
     
     # Monitoring DNS record
-    local monitoring_hostname="${HOST_PREFIX}monitoring.${BASE_DOMAIN}"
+    local monitoring_hostname="monitoring.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
     aws route53 change-resource-record-sets --hosted-zone-id "$hz_id" --change-batch "{
         \"Changes\": [{
             \"Action\": \"UPSERT\",
@@ -968,7 +964,7 @@ update_route53_records() {
 update_loadgen_hostname() {
     log_info "Updating load generator hostname..."
     
-    local frontend_hostname="${HOST_PREFIX}demo-frontend.${BASE_DOMAIN}"
+    local frontend_hostname="demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
     local protocol="http"
     
     if [[ "${HTTPS_MODE:-off}" == "alb-acm" ]]; then

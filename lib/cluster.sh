@@ -10,103 +10,11 @@ if [[ -z "$RED" ]]; then
     source "$LIB_DIR/common.sh"
 fi
 
-# Function to create new EKS cluster
-create_cluster() {
-    local cluster_name="$1"
-    local region="$2"
-    local node_type="${3:-m5.large}"
-    local node_count="${4:-3}"
-    
-    log_section "Creating EKS Cluster: $cluster_name"
-    
-    # Check if cluster already exists
-    if aws eks describe-cluster --region "$region" --name "$cluster_name" >/dev/null 2>&1; then
-        log_warning "Cluster '$cluster_name' already exists in region '$region'"
-        if ! confirm_action "Do you want to use the existing cluster?"; then
-            log_error "Cluster creation cancelled"
-            return 1
-        fi
-        log_info "Using existing cluster: $cluster_name"
-        return 0
-    fi
-    
-    log_info "Creating EKS cluster with the following configuration:"
-    echo "  Name: $cluster_name"
-    echo "  Region: $region"
-    echo "  Node Type: $node_type"
-    echo "  Node Count: $node_count"
-    echo ""
-    
-    if is_dry_run; then
-        log_warning "[DRY RUN] Would create EKS cluster: $cluster_name"
-        return 0
-    fi
-    
-    # Create cluster using eksctl
-    local eksctl_cmd="eksctl create cluster \
-        --name $cluster_name \
-        --region $region \
-        --nodegroup-name standard-workers \
-        --node-type $node_type \
-        --nodes $node_count \
-        --nodes-min 1 \
-        --nodes-max 10 \
-        --managed \
-        --with-oidc \
-        --ssh-access \
-        --ssh-public-key ~/.ssh/id_rsa.pub \
-        --full-ecr-access"
-    
-    log_info "Executing: $eksctl_cmd"
-    
-    if eval "$eksctl_cmd"; then
-        log_success "EKS cluster '$cluster_name' created successfully"
-        
-        # Update kubeconfig
-        update_kubeconfig "$cluster_name" "$region"
-        
-        # Verify cluster is ready
-        wait_for_cluster_ready "$cluster_name" "$region"
-        
-        return 0
-    else
-        log_error "Failed to create EKS cluster: $cluster_name"
-        return 1
-    fi
-}
+# NOTE: create_cluster() removed - Terraform handles EKS cluster creation
+# Use terraform apply in fictional-computing-machine modules instead
 
-# Function to cleanup CloudFormation stacks associated with the cluster
-cleanup_cloudformation_stacks() {
-    local cluster_name="$1"
-    local region="$2"
-    
-    log_info "Checking CloudFormation stacks for cluster: $cluster_name"
-    
-    # Identify likely stacks (eksctl naming convention)
-    local stacks=$(aws cloudformation list-stacks \
-        --region "$region" \
-        --query "StackSummaries[?contains(StackName, 'eksctl-${cluster_name}') && (StackStatus=='DELETE_FAILED' || StackStatus=='CREATE_COMPLETE' || StackStatus=='ROLLBACK_COMPLETE')].StackName" \
-        --output text 2>/dev/null || echo "")
-    
-    if [ -z "$stacks" ]; then
-        log_info "No matching CloudFormation stacks found for cluster: $cluster_name"
-        return 0
-    fi
-    
-    log_info "Found CloudFormation stacks to delete: $stacks"
-    for s in $stacks; do
-        log_info "Deleting CloudFormation stack: $s"
-        aws cloudformation delete-stack --region "$region" --stack-name "$s" || log_warning "Failed to initiate delete for stack: $s"
-    done
-    
-    # Wait for deletion attempts (best-effort)
-    for s in $stacks; do
-        log_info "Waiting for stack deletion: $s"
-        aws cloudformation wait stack-delete-complete --region "$region" --stack-name "$s" 2>/dev/null || log_warning "Stack did not reach delete-complete: $s"
-    done
-    
-    log_success "CloudFormation cleanup pass completed"
-}
+# NOTE: cleanup_cloudformation_stacks() removed - Not needed with Terraform
+# Terraform manages its own state and cleanup
 
 # Function to wait for cluster to be ready
 wait_for_cluster_ready() {
@@ -334,35 +242,14 @@ cleanup_cluster() {
         log_warning "eksctl cluster delete reported an error; proceeding with CloudFormation cleanup"
     fi
     
-    # Attempt CloudFormation stack cleanup (handles stuck deletions)
-    cleanup_cloudformation_stacks "$cluster_name" "$region"
-
-    # Clean up IAM roles and policies
-    cleanup_iam_resources "$cluster_name"
+    # NOTE: CloudFormation and IAM cleanup removed - Terraform handles this
+    # Use terraform destroy to clean up all infrastructure
     
     log_success "Cluster '$cluster_name' deleted successfully"
 }
 
-# Function to cleanup IAM resources
-cleanup_iam_resources() {
-    local cluster_name="$1"
-    
-    log_info "Cleaning up IAM resources..."
-    
-    # Delete service account IAM role
-    aws iam detach-role-policy \
-        --role-name "AmazonEKSLoadBalancerControllerRole" \
-        --policy-arn "arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):policy/AWSLoadBalancerControllerIAMPolicy" \
-        2>/dev/null || true
-    
-    aws iam delete-role \
-        --role-name "AmazonEKSLoadBalancerControllerRole" \
-        2>/dev/null || true
-    
-    # Note: We don't delete the IAM policy as it might be used by other clusters
-    
-    log_info "IAM cleanup completed"
-}
+# NOTE: cleanup_iam_resources() removed - Terraform manages IAM resources
+# Use terraform destroy to clean up IAM roles and policies
 
 # Function to get cluster nodes info
 get_cluster_nodes() {

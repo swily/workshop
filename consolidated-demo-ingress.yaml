@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: consolidated-demo-ingress
+  name: ${CLUSTER_NAME:-default}-consolidated-demo-ingress
   namespace: otel-demo
   annotations:
     kubernetes.io/ingress.class: alb
@@ -19,7 +19,7 @@ metadata:
 spec:
   ingressClassName: alb
   rules:
-  - host: demo-frontend.gremlinpoc.com
+  - host: demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.gremlinpoc.com}
     http:
       paths:
       # Main frontend (root path)

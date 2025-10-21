@@ -372,9 +372,9 @@ display_workshop_endpoints() {
     echo ""
     
     echo -e "${GREEN}🔗 DNS Endpoints (after propagation):${NC}"
-    echo "  Frontend:    https://$CLUSTER_NAME-frontend.gremlinpoc.com"
-    echo "  Grafana:     https://$CLUSTER_NAME-grafana.gremlinpoc.com"
-    echo "  Prometheus:  https://$CLUSTER_NAME-prometheus.gremlinpoc.com"
+    echo "  Frontend:    https://demo-frontend.${CLUSTER_NAME}.gremlinpoc.com"
+    echo "  Monitoring:  https://monitoring.${CLUSTER_NAME}.gremlinpoc.com"
+    echo "  Prometheus:  https://monitoring.${CLUSTER_NAME}.gremlinpoc.com/prometheus"
     echo ""
     
     echo -e "${GREEN}🐒 Gremlin Integration:${NC}"

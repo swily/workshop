@@ -99,28 +99,8 @@ parse_arguments() {
         esac
     done
 }
-# Patch consolidated ingress with DNS and TLS if ACM is available
-patch_consolidated_ingress_dns_tls() {
-    local ingress_ns="otel-demo"
-    local ingress_name="consolidated-demo-ingress"
-    local hostname="demo-frontend.${BASE_DOMAIN}"
-
-    log_info "Patching consolidated ingress with ExternalDNS hostname: ${hostname}"
-    kubectl -n "$ingress_ns" annotate ingress "$ingress_name" \
-        "external-dns.alpha.kubernetes.io/hostname=${hostname}" \
-        --overwrite || true
-
-    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
-        log_info "Applying TLS annotations using ACM cert: ${ACM_CERT_ARN}"
-        kubectl -n "$ingress_ns" annotate ingress "$ingress_name" \
-            'alb.ingress.kubernetes.io/listen-ports=[{"HTTP":80,"HTTPS":443}]' \
-            'alb.ingress.kubernetes.io/ssl-redirect=443' \
-            "alb.ingress.kubernetes.io/certificate-arn=${ACM_CERT_ARN}" \
-            --overwrite || true
-    else
-        log_warning "ACM not detected; leaving ingress HTTP-only"
-    fi
-}
+# NOTE: patch_consolidated_ingress_dns_tls() removed - Terraform creates ALB with TLS
+# Terraform ALB module handles certificate attachment and HTTPS configuration
 # Core workflow functions
 create_and_deploy() {
     log_section "Creating New Cluster and Deploying Everything"
@@ -155,14 +135,17 @@ create_and_deploy() {
 
     # Apply cross-namespace services to route monitoring through consolidated ALB
     log_info "Applying cross-namespace services for consolidated ingress..."
-    kubectl apply -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" || log_warning "Cross-namespace services file not found"
+    if [[ -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" ]]; then
+        kubectl apply -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" || {
+            log_error "Failed to apply cross-namespace services"
+            return 1
+        }
+    else
+        log_warning "Cross-namespace services file not found: $SCRIPT_DIR/otel-demo-cross-namespace-services.yaml"
+    fi
 
-    # Apply consolidated ingress (single ALB, path-based routing)
-    log_info "Applying consolidated ingress..."
-    kubectl apply -f "$SCRIPT_DIR/consolidated-demo-ingress.yaml" || log_warning "Consolidated ingress file not found"
-
-    # Patch DNS/TLS on the consolidated ingress
-    patch_consolidated_ingress_dns_tls
+    # NOTE: Consolidated ingress creation removed - Terraform creates ALB listener rules
+    # Terraform ALB module handles target groups and routing configuration
 
     # Remove any legacy per-app ingresses if they exist (idempotent cleanup)
     kubectl delete ingress -n otel-demo frontend-proxy jaeger-ingress 2>/dev/null || true
@@ -319,30 +302,10 @@ main() {
         HOST_PREFIX="${CLUSTER_NAME}-"
     fi
 
-    # Auto-configure domain and ACM certificate for ALB TLS
+    # NOTE: ACM certificate auto-detection removed - Terraform handles TLS configuration
+    # Terraform ALB module manages certificates and HTTPS setup
     BASE_DOMAIN="gremlinpoc.com"
-    ACM_CERT_ARN=${ACM_CERT_ARN:-}
-    # Only auto-detect ACM if user hasn't overridden --https
-    if [ -z "${HTTPS_MODE:-}" ]; then
-        if command_exists aws; then
-            found_arn=$(aws acm list-certificates \
-                --region "$AWS_REGION" \
-                --certificate-statuses ISSUED \
-                --query "CertificateSummaryList[?DomainName=='*.${BASE_DOMAIN}' || DomainName=='${BASE_DOMAIN}'].CertificateArn" \
-                --output text 2>/dev/null | head -n1 || true)
-            if [ -n "$found_arn" ]; then
-                ACM_CERT_ARN="$found_arn"
-                HTTPS_MODE="alb-acm"
-                log_success "Using ACM certificate for ${BASE_DOMAIN}: ${ACM_CERT_ARN}"
-            else
-                HTTPS_MODE="off"
-                log_warning "No ACM certificate found for ${BASE_DOMAIN} in ${AWS_REGION}. Proceeding with HTTP only."
-            fi
-        fi
-    else
-        log_info "HTTPS mode overridden by flag: ${HTTPS_MODE}"
-    fi
-    export HTTPS_MODE BASE_DOMAIN HOST_PREFIX ACM_CERT_ARN EXTERNALDNS_IAM_ROLE_ARN
+    export BASE_DOMAIN HOST_PREFIX
     
     # Execute the requested action
     case "$WORKSHOP_ACTION" in
