@@ -203,6 +203,11 @@ provision_infrastructure() {
     # Export outputs to environment
     export_terraform_outputs "$workspace_dir"
     
+    # Ensure SUBDOMAIN and OWNER are exported for downstream scripts
+    # (export_terraform_outputs should set these, but ensure they're available)
+    export SUBDOMAIN="${SUBDOMAIN}"
+    export OWNER="${OWNER}"
+    
     # Fetch Gremlin credentials from Secrets Manager
     fetch_gremlin_credentials
     

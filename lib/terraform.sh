@@ -260,6 +260,24 @@ terraform_output_json() {
 }
 
 # Export Terraform outputs to environment variables
+# 
+# Expected outputs from fictional-computing-machine sa_demo module:
+# - cluster_name: EKS cluster name (e.g., "alexs-eks")
+# - cluster_endpoint: EKS cluster API endpoint
+# - cluster_region: AWS region (e.g., "us-east-2")
+# - alb_dns_name: ALB DNS name (e.g., "k8s-alexs-alb-123.us-east-2.elb.amazonaws.com")
+# - demo_frontend_url: Full frontend URL (e.g., "https://demo-frontend.alexs.gremlinpoc.com")
+# - monitoring_url: Full monitoring URL (e.g., "https://monitoring.alexs.gremlinpoc.com")
+# - otel_demo_target_group_arn: ARN of OTel Demo target group
+# - monitoring_target_group_arn: ARN of monitoring target group
+# - gremlin_team_id_arn: ARN of Gremlin Team ID secret
+# - gremlin_team_certificate_arn: ARN of Gremlin certificate secret
+# - gremlin_team_private_key_arn: ARN of Gremlin private key secret
+# - subdomain: Deployment subdomain (e.g., "alexs")
+# - owner: Deployment owner (e.g., "alex.smith")
+#
+# NOTE: If fictional-computing-machine module uses different output names,
+# update the jq queries below to match the actual output names.
 export_terraform_outputs() {
     local workspace_dir="$1"
     local outputs_json

@@ -560,8 +560,16 @@ setup_gremlin_monitoring() {
     export GREMLIN_TEAM_ID="$GREMLIN_TEAM_ID"
     "$REPO_ROOT/config/gremlin/gremlin_annotations.sh" ${GREMLIN_TEAM_ID:+-t "$GREMLIN_TEAM_ID"}
     
-    # Wait for DNS resolution and offer health check creation
-    if [ -f "$REPO_ROOT/monitoring/gremlin/create_health_checks.sh" ]; then
+    # Create health checks using new healthchecks.sh script
+    if [ -f "$REPO_ROOT/build_scripts/demo/healthchecks.sh" ]; then
+        log_info "Creating Gremlin health checks..."
+        export SUBDOMAIN="${SUBDOMAIN}"
+        export CLUSTER_NAME="${CLUSTER_NAME}"
+        "$REPO_ROOT/build_scripts/demo/healthchecks.sh" \
+            --platform all \
+            --subdomain "$SUBDOMAIN" \
+            --cluster-name "$CLUSTER_NAME"
+    elif [ -f "$REPO_ROOT/monitoring/gremlin/create_health_checks.sh" ]; then
         echo -e "${BLUE}🔍 Waiting for DNS resolution before health check creation...${NC}"
         # Wait for consolidated ALB hostname to be available
         local consolidated_alb

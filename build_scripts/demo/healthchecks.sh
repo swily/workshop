@@ -25,6 +25,7 @@ fi
 
 # Default values
 CLUSTER_NAME="${CLUSTER_NAME:-current-workshop}"
+SUBDOMAIN="${SUBDOMAIN:-}"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 DNS_WAIT_TIME=300
 DRY_RUN=false
@@ -47,6 +48,7 @@ show_usage() {
     echo "Options:"
     echo "  --platform PLATFORM    Create health checks for platform (prometheus|grafana|dynatrace|newrelic|all)"
     echo "  --cluster-name NAME     Specify cluster name (default: from state file or current-workshop)"
+    echo "  --subdomain NAME        Specify subdomain for DNS (default: from SUBDOMAIN env var)"
     echo "  --dns-wait SECONDS      Wait for DNS propagation (default: 300)"
     echo "  --dry-run              Show what would be created without making changes"
     echo "  --validate-only        Only validate existing health checks"
@@ -70,6 +72,10 @@ parse_arguments() {
                 ;;
             --cluster-name)
                 CLUSTER_NAME="$2"
+                shift 2
+                ;;
+            --subdomain)
+                SUBDOMAIN="$2"
                 shift 2
                 ;;
             --dns-wait)
@@ -237,9 +243,11 @@ discover_cluster_endpoints() {
     fi
     
     # Get DNS mappings
-    FRONTEND_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "frontend") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-frontend.gremlinpoc.com")
-    GRAFANA_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "grafana_monitoring") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-grafana.gremlinpoc.com")
-    PROMETHEUS_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "prometheus") | .key' "$state_file" 2>/dev/null || echo "$CLUSTER_NAME-prometheus.gremlinpoc.com:9090")
+    # Use SUBDOMAIN if available, fallback to CLUSTER_NAME for backwards compatibility
+    local dns_prefix="${SUBDOMAIN:-${CLUSTER_NAME}}"
+    FRONTEND_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "frontend") | .key' "$state_file" 2>/dev/null || echo "demo-frontend.${dns_prefix}.gremlinpoc.com")
+    GRAFANA_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "grafana_monitoring") | .key' "$state_file" 2>/dev/null || echo "monitoring.${dns_prefix}.gremlinpoc.com")
+    PROMETHEUS_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "prometheus") | .key' "$state_file" 2>/dev/null || echo "monitoring.${dns_prefix}.gremlinpoc.com/prometheus")
     
     # Add scheme to DNS endpoints
     FRONTEND_DNS="${scheme}://${FRONTEND_DNS}"
