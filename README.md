@@ -1,246 +1,134 @@
 # Workshop - OpenTelemetry Demo with Gremlin Chaos Engineering
 
-Automated deployment of OpenTelemetry Demo application with integrated monitoring (Prometheus/Grafana) and Gremlin chaos engineering on AWS EKS. Infrastructure managed by Terraform, applications deployed via Kubernetes.
+Automated deployment of OpenTelemetry Demo application with integrated monitoring (Prometheus/Grafana) and Gremlin chaos engineering on AWS EKS.
 
-**Status:** ✅ Ready for Testing (Refactoring Complete - 2025-10-21)
-
----
-
-## Table of Contents
-
-- [Repository Architecture](#repository-architecture)
-- [What This Does](#what-this-does)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Understanding the Flags](#understanding-the-flags)
-- [Credential Management](#credential-management)
-- [Common Workflows](#common-workflows)
-- [What Gets Created](#what-gets-created)
-- [Recent Improvements](#recent-improvements)
-- [Troubleshooting](#troubleshooting)
-
----
-
-## Repository Architecture
-
-This workshop uses **two separate repositories** that work together:
-
-### 1. fictional-computing-machine (Infrastructure)
-- **Repository:** https://github.com/gremlin/fictional-computing-machine
-- **Purpose:** Terraform modules for AWS infrastructure
-- **Contains:** EKS, ALB, Route53, IAM, Secrets Manager configurations
-- **Versioning:** Git tags/branches (referenced via `?ref=main`)
-
-### 2. workshop (Orchestration)
-- **Repository:** This repository
-- **Purpose:** Deployment orchestration and application management
-- **Contains:** Deployment scripts, monitoring setup, Gremlin integration
-- **Uses:** fictional-computing-machine modules via Terraform
-
-### How They Work Together
-
-```
-workshop.sh → lib/terraform.sh → Generates workspace
-                                 ↓
-                    module "workshop" {
-                      source = "git::https://github.com/gremlin/
-                                fictional-computing-machine.git//
-                                modules/workshop?ref=main"
-                    }
-                                 ↓
-                    Terraform creates infrastructure
-                                 ↓
-                    workshop.sh deploys applications
-```
-
-**Key Benefits:**
-- **Separation:** Infrastructure code separate from application code
-- **Reusability:** fictional-computing-machine modules used by multiple projects
-- **Versioning:** Pin to specific infrastructure versions
-- **Updates:** Update infrastructure independently from applications
 
 ---
 
 ## What This Does
 
-This workshop script automates the deployment of:
+Deploys a complete chaos engineering demo environment:
 
-1. **Infrastructure** (via Terraform)
-   - EKS cluster with managed node groups
-   - Application Load Balancer (ALB) with HTTPS
-   - Route53 DNS records (demo-frontend.{subdomain}.gremlinpoc.com)
-   - IAM roles and policies
-   - Secrets Manager integration for credentials
+- **20 OpenTelemetry microservices** (2 replicas each for dependency detection)
+- **Prometheus + Grafana** monitoring with pre-configured dashboards
+- **Gremlin agents** for chaos engineering experiments
+- **HTTPS endpoints** with automatic DNS configuration
+- **Health checks** monitoring service availability
 
-2. **Applications** (via Kubernetes/Helm)
-   - OpenTelemetry Demo (20+ microservices)
-   - Prometheus + Grafana monitoring stack
-   - Gremlin agent for chaos engineering
-   - Optional: Failure Flags for controlled failures
-
-3. **Integration**
-   - ALB routes traffic to frontend and monitoring
-   - Gremlin health checks monitor services
-   - Automatic service discovery and tagging
-
-**Result:** A fully functional demo environment accessible at `https://demo-frontend.{subdomain}.gremlinpoc.com`
+**Access URLs:**
+- Frontend: `https://demo-frontend.{your-subdomain}.gremlinpoc.com`
+- Grafana: `https://monitoring.{your-subdomain}.gremlinpoc.com` (admin/prom-operator)
+- Gremlin: `https://app.gremlin.com/services`
 
 ---
 
 ## Prerequisites
 
-### Required Repository
-
-This workshop requires the `fictional-computing-machine` repository to be cloned alongside this repository:
-
+**Required Tools:**
 ```bash
-# Clone both repositories in the same parent directory
-cd ~/your-workspace
-git clone https://github.com/gremlin/fictional-computing-machine.git
-git clone https://github.com/your-org/workshop.git
+# Install via Homebrew (macOS)
+brew install awscli terraform kubectl helm jq
 
-# Directory structure should be:
-# ~/your-workspace/
-# ├── fictional-computing-machine/
-# └── workshop/
+# Configure AWS credentials
+aws configure
 ```
 
-The workshop automatically references Terraform modules from the local `fictional-computing-machine` repository.
+**Required Accounts:**
+- AWS account with admin permissions
+- Gremlin account (sign up at https://app.gremlin.com/signup)
 
-**Custom path:** Set `FCM_LOCAL_PATH` environment variable if your repos are in different locations:
-```bash
-export FCM_LOCAL_PATH="/path/to/fictional-computing-machine"
-```
-
-### Required Tools
-
-Install these tools before running the workshop:
-
-```bash
-# AWS CLI
-brew install awscli
-aws configure  # Set your credentials
-
-# Terraform (>= 1.13)
-brew install terraform
-
-# kubectl
-brew install kubectl
-
-# Helm v3
-brew install helm
-
-# jq (JSON processor)
-brew install jq
-```
-
-### AWS Account Setup
-
-1. **AWS Credentials** - Configure with appropriate permissions:
-   ```bash
-   aws configure
-   # AWS Access Key ID: YOUR_KEY
-   # AWS Secret Access Key: YOUR_SECRET
-   # Default region: us-east-2
-   ```
-
-2. **Required AWS Permissions:**
-   - EKS cluster creation
-   - EC2 (VPC, subnets, security groups)
-   - IAM role/policy creation
-   - Route53 DNS management
-   - Secrets Manager access
-   - S3 (for Terraform state)
-   - DynamoDB (for Terraform state locking)
-
-3. **Terraform State Backend** (automatically created):
-   - The workshop automatically creates these shared resources if they don't exist:
-     - S3 bucket: `gremlin-terraform-state-us-east-2` (with versioning and encryption)
-     - DynamoDB table: `gremlin-terraform-locks` (for state locking)
-   - All users share the same backend for collaboration
-   - Each deployment gets its own state file: `workshop/{subdomain}/terraform.tfstate`
-
-### Gremlin Account
-
-You need a Gremlin account to use chaos engineering features:
-
-1. **Sign up:** https://app.gremlin.com/signup
-2. **Get credentials:**
-   - Go to Settings → Teams
-   - Download your team certificate and private key
-   - Note your Team ID (format: `438c58ec-03db-47ac-8c58-ec03db67ac42`)
+**Gremlin Credentials Needed:**
+1. Team ID and Team Secret (Settings → Teams)
+2. Team Certificate and Private Key (Settings → Teams → Download)
+3. API Key (Settings → API Keys → Create new key with health check permissions)
 
 ---
 
 ## Quick Start
 
-### Option 1: With Secrets Manager (Recommended)
-
-**Step 1: Store your Gremlin credentials in AWS Secrets Manager**
+### Step 1: Store Gremlin Credentials (One-Time Setup)
 
 ```bash
-# Set your name (used as owner)
-OWNER="alex.smith"
-REGION="us-east-2"
+# Set your information
+export OWNER="john.doe"        # Your name
+export AWS_REGION="us-east-2"  # AWS region
 
-# Create secrets (one-time setup)
+# Store Gremlin Team ID (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_id" \
-    --description "Gremlin Team ID for ${OWNER}" \
-    --secret-string "438c58ec-03db-47ac-8c58-ec03db67ac42" \
-    --region "$REGION"
+    --secret-string "YOUR_GREMLIN_TEAM_ID" \
+    --region $AWS_REGION
 
-aws secretsmanager create-secret \
-    --name "${OWNER}/gremlin_team_certificate" \
-    --description "Gremlin Team Certificate for ${OWNER}" \
-    --secret-string "$(cat ~/Downloads/team-certificate.pem)" \
-    --region "$REGION"
-
+# Store Gremlin Team Secret (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_secret" \
-    --description "Gremlin Team Secret for ${OWNER}" \
-    --secret-string "YOUR_TEAM_SECRET_HERE" \
-    --region "$REGION"
+    --secret-string "YOUR_GREMLIN_TEAM_SECRET" \
+    --region $AWS_REGION
 
+# Store Gremlin API Key (required for health checks)
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_api_key" \
+    --secret-string "YOUR_GREMLIN_API_KEY" \
+    --region $AWS_REGION
+
+# Store Gremlin Team Certificate (required)
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_certificate" \
+    --secret-string "$(cat /path/to/gremlin-cert.pem)" \
+    --region $AWS_REGION
+
+# Store Gremlin Team Private Key (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_private_key" \
-    --description "Gremlin Team Private Key for ${OWNER}" \
-    --secret-string "$(cat ~/Downloads/team-private-key.pem)" \
-    --region "$REGION"
+    --secret-string "$(cat /path/to/gremlin-key.pem)" \
+    --region $AWS_REGION
 ```
 
-**Step 2: Deploy the workshop**
+**How to get your Gremlin credentials:**
+1. Go to https://app.gremlin.com
+2. Settings → Teams → Download certificate/key
+3. Settings → API Keys → Create new API key (needs health check permissions)
+
+### Step 2: Deploy Everything
 
 ```bash
 ./workshop.sh \
     --action build_new \
-    --subdomain alexs \
-    --owner alex.smith \
-    --enable-eks \
-    --monitoring grafana
+    --subdomain johndoe \
+    --owner john.doe
 ```
 
-That's it! The script will:
-- Auto-detect your Gremlin credentials from Secrets Manager
-- Create infrastructure with Terraform (~15-20 minutes)
-- Deploy all applications
-- Configure monitoring and chaos engineering
+The script will:
+- Create infrastructure with Terraform (~20 minutes)
+- Deploy 20 OpenTelemetry microservices (2 replicas each)
+- Install Gremlin agents and create health checks
+- Deploy Prometheus + Grafana monitoring
+- Configure HTTPS with ACM certificates
+- Set up DNS records
 
-### Option 2: With Environment Variables (Quick Test)
+**Access your deployment:**
+- Frontend: `https://demo-frontend.johndoe.gremlinpoc.com`
+- Grafana: `https://monitoring.johndoe.gremlinpoc.com` (admin/admin#)
+- Gremlin: `https://app.gremlin.com/services`
+
+### Alternative: Deploy to Existing Cluster
+
+If infrastructure already exists:
 
 ```bash
-# Export credentials
-export GREMLIN_TEAM_ID="438c58ec-03db-47ac-8c58-ec03db67ac42"
-export GREMLIN_TEAM_CERTIFICATE="$(cat ~/Downloads/team-certificate.pem)"
-export GREMLIN_TEAM_PRIVATE_KEY="$(cat ~/Downloads/team-private-key.pem)"
-
-# Deploy
 ./workshop.sh \
-    --subdomain test \
-    --owner test.user \
-    --enable-eks \
-    --action create_new
+    --action deploy_existing \
+    --cluster-name johndoe-eks \
+    --owner john.doe
 ```
+
+This will:
+- Update/deploy applications (idempotent)
+- Scale services to 2 replicas (for dependency detection)
+- Update Gremlin annotations
+- Refresh health checks
+- Update DNS records
+- **Does NOT delete** existing resources
 
 ---
 
@@ -250,21 +138,18 @@ export GREMLIN_TEAM_PRIVATE_KEY="$(cat ~/Downloads/team-private-key.pem)"
 
 | Flag | Description | Example | Notes |
 |------|-------------|---------|-------|
-| `--subdomain` | Unique identifier for your deployment | `alexs`, `demo1`, `test` | Used for DNS: `demo-frontend.{subdomain}.gremlinpoc.com` |
-| `--owner` | Your name/identifier | `alex.smith`, `jane.doe` | Used for resource tagging and credential lookup |
-| `--enable-eks` | Enable EKS cluster creation | (flag, no value) | Required for Kubernetes deployment |
-| `--action` | What to do | `create_new`, `deploy_existing`, `cleanup` | See [Actions](#actions) below |
+| `--action` | What to do | `build_new`, `deploy_existing`, `cleanup` | See [Actions](#actions) below |
+| `--subdomain` | Unique identifier for your deployment | `johndoe`, `demo1`, `test` | Used for DNS: `demo-frontend.{subdomain}.gremlinpoc.com` |
+| `--owner` | Your name/identifier | `john.doe`, `jane.smith` | Used for resource tagging and AWS Secrets Manager lookup |
 
 ### Optional Flags
 
 | Flag | Description | Default | Example |
 |------|-------------|---------|----------|
-| `--enable-ecs-fargate` | Also create ECS Fargate cluster | `false` | `--enable-ecs-fargate` |
-| `--monitoring` | Monitoring platform | `prometheus` | `--monitoring grafana` |
-| `--enable-failure-flags` | Deploy Failure Flags sidecar | `false` | `--enable-failure-flags` |
-| `--install-istio` | Install Istio service mesh | `false` | `--install-istio` |
+| `--cluster-name` | EKS cluster name (for deploy_existing) | `{subdomain}-eks` | `--cluster-name my-cluster` |
 | `--region` | AWS region | `us-east-2` | `--region us-west-2` |
-| `--fcm-version` | fictional-computing-machine version | `main` | `--fcm-version v1.2.0` |
+| `--monitoring` | Monitoring platform | `grafana` | `--monitoring prometheus` |
+| `--enable-failure-flags` | Deploy Failure Flags sidecar | `false` | `--enable-failure-flags` |
 | `--dry-run` | Show what would happen | (none) | `--dry-run` |
 
 ### Credential Flags (Optional)
@@ -279,12 +164,11 @@ If you don't want to use Secrets Manager auto-detection:
 
 ### Actions
 
-| Action | What It Does | When to Use |
-|--------|--------------|-------------|
-| `create_new` | Create infrastructure + deploy apps | First time deployment |
-| `deploy_existing` | Deploy apps to existing infrastructure | Update applications |
-| `gremlin_only` | Install Gremlin on existing cluster | Add chaos engineering |
-| `cleanup` | Destroy everything | Remove deployment |
+| Action | What It Does | When to Use | Time |
+|--------|--------------|-------------|------|
+| `build_new` | Create infrastructure + deploy apps | First time deployment | ~20-30 min |
+| `deploy_existing` | Update apps on existing cluster | Update/redeploy applications | ~10-15 min |
+| `cleanup` | Destroy all resources | Remove deployment | ~10 min |
 
 ---
 
@@ -299,50 +183,51 @@ The script tries multiple methods in this order:
 3. **Environment variables** (`GREMLIN_TEAM_ID`, `GREMLIN_TEAM_CERTIFICATE`, etc.)
 4. **Fail with helpful error**
 
-### Method 1: Secrets Manager (Recommended)
-
-**Why?**
-- ✅ Secure (no credentials in shell history)
-- ✅ Automatic (just provide `--owner`)
-- ✅ Centralized (one place to update)
-- ✅ Auditable (AWS CloudTrail logs access)
-
-**Setup:**
+### Secrets Manager (Required)
+**Required Secrets:**
 
 ```bash
-OWNER="your.name"
+export OWNER="your.name"
+export AWS_REGION="us-east-2"
 
-# Create Team ID secret
+# 1. Team ID (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_id" \
-    --secret-string "YOUR_TEAM_ID_HERE" \
-    --region us-east-2
+    --secret-string "YOUR_TEAM_ID" \
+    --region $AWS_REGION
 
-# Create certificate secret
+# 2. Team Secret (required)
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_secret" \
+    --secret-string "YOUR_TEAM_SECRET" \
+    --region $AWS_REGION
+
+# 3. API Key (required for health checks)
+aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_api_key" \
+    --secret-string "YOUR_API_KEY" \
+    --region $AWS_REGION
+
+# 4. Certificate (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_certificate" \
-    --secret-string "$(cat /path/to/team-certificate.pem)" \
-    --region us-east-2
+    --secret-string "$(cat /path/to/gremlin-cert.pem)" \
+    --region $AWS_REGION
 
-# Create private key secret
+# 5. Private Key (required)
 aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_private_key" \
-    --secret-string "$(cat /path/to/team-private-key.pem)" \
-    --region us-east-2
+    --secret-string "$(cat /path/to/gremlin-key.pem)" \
+    --region $AWS_REGION
 ```
 
 **Usage:**
 ```bash
-./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
-# Credentials automatically loaded!
+./workshop.sh --action build_new --subdomain demo --owner your.name
+# Credentials automatically loaded from Secrets Manager!
 ```
 
 ### Method 2: Environment Variables
-
-**Why?**
-- ✅ Quick for testing
-- ✅ No AWS setup needed
-- ⚠️ Less secure (visible in process list)
 
 **Setup:**
 ```bash
@@ -358,10 +243,6 @@ export GREMLIN_TEAM_PRIVATE_KEY="$(cat team-private-key.pem)"
 
 ### Method 3: Explicit ARNs
 
-**Why?**
-- ✅ Full control over which secrets to use
-- ✅ Can use team-shared secrets
-
 **Usage:**
 ```bash
 ./workshop.sh \
@@ -376,149 +257,6 @@ export GREMLIN_TEAM_PRIVATE_KEY="$(cat team-private-key.pem)"
 
 ---
 
-## Common Workflows
-
-### Scenario 1: First Time User with Gremlin Team ID
-
-**You have:**
-- Gremlin Team ID: `438c58ec-03db-47ac-8c58-ec03db67ac42`
-- Team certificate and private key files downloaded
-
-**Steps:**
-
-1. **Store credentials in Secrets Manager (one-time):**
-   ```bash
-   OWNER="your.name"
-   
-   aws secretsmanager create-secret \
-       --name "${OWNER}/gremlin_team_id" \
-       --secret-string "438c58ec-03db-47ac-8c58-ec03db67ac42" \
-       --region us-east-2
-   
-   aws secretsmanager create-secret \
-       --name "${OWNER}/gremlin_team_certificate" \
-       --secret-string "$(cat ~/Downloads/team-certificate.pem)" \
-       --region us-east-2
-   
-   aws secretsmanager create-secret \
-       --name "${OWNER}/gremlin_team_private_key" \
-       --secret-string "$(cat ~/Downloads/team-private-key.pem)" \
-       --region us-east-2
-   ```
-
-2. **Deploy:**
-   ```bash
-   ./workshop.sh \
-       --subdomain demo1 \
-       --owner your.name \
-       --enable-eks \
-       --action create_new
-   ```
-
-3. **Access your deployment:**
-   - Frontend: `https://demo-frontend.demo1.gremlinpoc.com`
-   - Grafana: `https://monitoring.demo1.gremlinpoc.com`
-   - Gremlin UI: `https://app.gremlin.com`
-
-### Scenario 2: Quick Test Without Secrets Manager
-
-**You have:**
-- Gremlin credentials files
-- Want to test quickly
-
-**Steps:**
-
-```bash
-# Export credentials
-export GREMLIN_TEAM_ID="438c58ec-03db-47ac-8c58-ec03db67ac42"
-export GREMLIN_TEAM_CERTIFICATE="$(cat ~/Downloads/team-certificate.pem)"
-export GREMLIN_TEAM_PRIVATE_KEY="$(cat ~/Downloads/team-private-key.pem)"
-
-# Deploy
-./workshop.sh \
-    --subdomain quicktest \
-    --owner test.user \
-    --enable-eks \
-    --action create_new
-```
-
-### Scenario 3: Deploy with Failure Flags
-
-**You want:**
-- Full deployment with controlled failure injection
-
-**Steps:**
-
-```bash
-./workshop.sh \
-    --subdomain demo-ff \
-    --owner your.name \
-    --enable-eks \
-    --enable-failure-flags \
-    --action create_new
-```
-
-**What you get:**
-- Failure Flags sidecar on checkout service
-- Ability to inject failures via Gremlin UI
-- Health checks monitoring service availability
-
-### Scenario 4: Update Applications Only
-
-**You have:**
-- Existing infrastructure
-- Want to update/redeploy applications
-
-**Steps:**
-
-```bash
-./workshop.sh \
-    --subdomain demo1 \
-    --action deploy_existing
-```
-
-This will:
-- Load existing Terraform outputs
-- Redeploy OpenTelemetry Demo
-- Update monitoring stack
-- Refresh Gremlin configuration
-
-### Scenario 5: Add Gremlin to Existing Cluster
-
-**You have:**
-- Running EKS cluster with applications
-- Want to add chaos engineering
-
-**Steps:**
-
-```bash
-./workshop.sh \
-    --subdomain demo1 \
-    --owner your.name \
-    --action gremlin_only
-```
-
-### Scenario 6: Clean Up Everything
-
-**You want:**
-- Remove all infrastructure
-- Delete cluster and resources
-
-**Steps:**
-
-```bash
-./workshop.sh \
-    --subdomain demo1 \
-    --action cleanup
-```
-
-This will:
-1. Delete Kubernetes ingresses (prevents hanging ALBs)
-2. Delete LoadBalancer services
-3. Run `terraform destroy`
-4. Remove all AWS resources
-
----
 
 ## What Gets Created
 
@@ -602,362 +340,3 @@ Tags: Owner=alex.smith, Subdomain=demo1, ManagedBy=terraform
 
 ---
 
-## Troubleshooting
-
-### Common Issues
-
-#### 1. "Missing required argument: --subdomain"
-
-**Problem:** You're using the new Terraform-based workflow but forgot required flags.
-
-**Solution:**
-```bash
-# Old way (still works for backwards compatibility)
-./workshop.sh --cluster-name test --action build_new
-
-# New way (required for Terraform)
-./workshop.sh --subdomain test --owner your.name --enable-eks --action create_new
-```
-
-#### 2. "No Gremlin credentials found"
-
-**Problem:** Script can't find your Gremlin credentials.
-
-**Solution - Check in order:**
-
-1. **Secrets Manager:** Do you have secrets created?
-   ```bash
-   aws secretsmanager list-secrets --query "SecretList[?contains(Name, 'your.name/gremlin')]"
-   ```
-
-2. **Environment Variables:** Are they set?
-   ```bash
-   echo $GREMLIN_TEAM_ID
-   echo $GREMLIN_TEAM_CERTIFICATE
-   ```
-
-3. **Explicit ARNs:** Did you provide them?
-   ```bash
-   ./workshop.sh --gremlin-team-id-arn "arn:aws:..." ...
-   ```
-
-#### 3. "Terraform workspace not found"
-
-**Problem:** Trying to use `deploy_existing` or `cleanup` but no workspace exists.
-
-**Solution:**
-```bash
-# Check if workspace exists
-ls -la terraform/workspace/
-
-# If missing, run create_new first
-./workshop.sh --subdomain demo1 --owner your.name --enable-eks --action create_new
-```
-
-#### 4. "ALB not becoming healthy"
-
-**Problem:** ALB target groups show unhealthy targets.
-
-**Solution:**
-```bash
-# Check pod status
-kubectl get pods -n otel-demo
-kubectl get pods -n monitoring
-
-# Check service endpoints
-kubectl get svc -n otel-demo
-kubectl get svc -n monitoring
-
-# Check ALB target groups in AWS Console
-# Ensure security groups allow traffic from ALB to pods
-```
-
-#### 5. "DNS records not created"
-
-**Problem:** Can't access `demo-frontend.{subdomain}.gremlinpoc.com`
-
-**Solution:**
-1. **Check Route53 hosted zone exists:**
-   ```bash
-   aws route53 list-hosted-zones --query "HostedZones[?Name=='gremlinpoc.com.']"
-   ```
-
-2. **Check Terraform outputs:**
-   ```bash
-   cd terraform/workspace/{subdomain}
-   terraform output
-   ```
-
-3. **Verify ALB DNS:**
-   ```bash
-   kubectl get ingress -A
-   # Look for ALB DNS name
-   ```
-
-#### 6. "Gremlin services not showing up"
-
-**Problem:** Services not appearing in Gremlin UI.
-
-**Solution:**
-```bash
-# Check Gremlin agent is running
-kubectl get pods -n gremlin
-
-# Check service annotations
-kubectl get svc -n otel-demo -o yaml | grep gremlin.com/service-id
-
-# Manually annotate if missing
-kubectl annotate svc -n otel-demo opentelemetry-demo-checkoutservice gremlin.com/service-id=checkout-service
-```
-
-#### 7. "Health checks not working"
-
-**Problem:** Gremlin health checks show as failing.
-
-**Solution:**
-```bash
-# Check if health check endpoints are accessible
-kubectl port-forward -n monitoring svc/prometheus-server 9090:80
-curl http://localhost:9090/api/v1/query?query=ALERTS
-
-# Check Grafana datasource
-kubectl port-forward -n monitoring svc/grafana 3000:80
-curl http://localhost:3000/api/health
-```
-
-### Getting Help
-
-**Check logs:**
-```bash
-# Terraform logs
-cd terraform/workspace/{subdomain}
-terraform show
-
-# Kubernetes logs
-kubectl logs -n otel-demo deployment/opentelemetry-demo-frontendproxy
-kubectl logs -n gremlin daemonset/gremlin
-
-# Script logs
-./workshop.sh --dry-run --action create_new  # See what would happen
-```
-
-**Validate configuration:**
-```bash
-# Check AWS credentials
-aws sts get-caller-identity
-
-# Check kubectl context
-kubectl config current-context
-
-# Check Terraform version
-terraform version  # Should be >= 1.13
-```
-
-**Clean slate:**
-```bash
-# If all else fails, clean up and start over
-./workshop.sh --subdomain demo1 --action cleanup
-./workshop.sh --subdomain demo1 --owner your.name --enable-eks --action create_new
-```
-
----
-
-## Advanced Configuration
-
-### Using Different Terraform Versions
-
-```bash
-# Pin to specific fictional-computing-machine version
-FCM_VERSION=v1.2.0 ./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
-
-# Or set in environment
-export FCM_VERSION=v1.2.0
-./workshop.sh --subdomain demo --owner your.name --enable-eks --action create_new
-```
-
-### Deploy to Different Region
-
-```bash
-./workshop.sh \
-    --subdomain demo \
-    --owner your.name \
-    --enable-eks \
-    --region us-west-2 \
-    --action create_new
-```
-
-### Enable Both EKS and ECS Fargate
-
-```bash
-./workshop.sh \
-    --subdomain demo \
-    --owner your.name \
-    --enable-eks \
-    --enable-ecs-fargate \
-    --action create_new
-```
-
-### Dry Run (See What Would Happen)
-
-```bash
-./workshop.sh \
-    --subdomain demo \
-    --owner your.name \
-    --enable-eks \
-    --dry-run \
-    --action create_new
-```
-
----
-
-## Architecture Overview
-
-### Infrastructure Layer (Terraform)
-
-```
-fictional-computing-machine (GitHub)
-    ↓ (referenced via Git URL)
-terraform/workspace/{subdomain}/
-    ├── main.tf          (single module reference)
-    ├── variables.tf     (deployment config)
-    └── terraform.tf     (backend config)
-    ↓ (terraform apply)
-AWS Resources:
-    ├── EKS Cluster
-    ├── ALB + Target Groups
-    ├── Route53 DNS
-    ├── IAM Roles
-    └── Secrets Manager
-```
-
-### Application Layer (Kubernetes)
-
-```
-workshop.sh
-    ↓
-scripts/operations/
-    ├── deploy_otel.sh        → OpenTelemetry Demo
-    ├── deploy_failure_flags.sh → Failure Flags
-    └── gremlin_install.sh    → Gremlin Agent
-    ↓
-Kubernetes Resources:
-    ├── otel-demo namespace (20+ microservices)
-    ├── monitoring namespace (Prometheus, Grafana)
-    └── gremlin namespace (Chaos agent)
-```
-
-### Integration Points
-
-```
-Terraform Outputs → Environment Variables → Application Scripts
-    ↓                    ↓                        ↓
-CLUSTER_NAME        AWS_REGION              kubectl commands
-ALB_DNS_NAME        GREMLIN_*_ARN           helm installs
-TARGET_GROUP_ARN    SUBDOMAIN               service annotations
-```
-
----
-
-## Recent Improvements
-
-### Code Refactoring (2025-10-21)
-
-**Eliminated ~101 lines of duplicate code** and unified installation patterns:
-
-1. **✅ Unified Gremlin Setup**
-   - Created `lib/gremlin.sh` with shared functions
-   - Created `lib/deployment.sh` with deployment helpers
-   - All 3 actions now use same code paths
-
-2. **✅ Automatic Credential Resolution**
-   - Function: `ensure_gremlin_credentials()`
-   - Auto-resolves from owner → Secrets Manager
-   - Falls back to subdomain → owner lookup
-   - **No more manual credential export required**
-
-3. **✅ Idempotency Implemented**
-   - `install_gremlin()` checks if already installed
-   - `fix_gremlin_ec2_permissions()` checks if policy attached
-   - Safe to run multiple times without conflicts
-
-4. **✅ EC2 Permissions in Correct Location**
-   - Moved from monitoring setup to cluster setup
-   - Runs during infrastructure provisioning (correct)
-
-5. **✅ Cross-Namespace Services Added**
-   - Now included in all actions (was missing from `deploy_existing`)
-   - Enables monitoring stack routing through ALB
-
-**Result:** Consistent, maintainable, idempotent deployments across all actions.
-
----
-
-## File Structure
-
-```
-workshop/
-├── workshop.sh                    # Main orchestration script
-├── lib/
-│   ├── terraform.sh              # Terraform wrapper
-│   ├── gremlin.sh                # Unified Gremlin functions (NEW)
-│   ├── deployment.sh             # Shared deployment functions (NEW)
-│   ├── common.sh                 # Shared utilities
-│   ├── cluster.sh                # Cluster operations
-│   ├── monitoring.sh             # Monitoring setup
-│   └── ui.sh                     # Interactive UI
-├── terraform/
-│   └── workspace/                # Generated per deployment
-│       └── {subdomain}/
-│           ├── main.tf           # FCM module reference
-│           ├── variables.tf
-│           └── terraform.tf
-├── scripts/
-│   ├── operations/
-│   │   ├── deploy_otel.sh
-│   │   ├── deploy_failure_flags.sh
-│   │   └── cluster_cleanup.sh
-│   └── gremlin_install.sh
-├── config/
-│   └── gremlin/
-│       ├── gremlin_annotations.sh
-│       └── healthchecks.sh
-└── README.md                     # This file
-```
-
----
-
-## Contributing
-
-### Updating Infrastructure Modules
-
-When Gremlin updates the `fictional-computing-machine` repository:
-
-1. **Test new version:**
-   ```bash
-   FCM_VERSION=v1.3.0 ./workshop.sh --subdomain test --owner your.name --enable-eks --action create_new
-   ```
-
-2. **Update default version:**
-   ```bash
-   vim lib/terraform.sh
-   # Change: FCM_VERSION="${FCM_VERSION:-v1.3.0}"
-   ```
-
-3. **Commit and push:**
-   ```bash
-   git add lib/terraform.sh
-   git commit -m "Update fictional-computing-machine to v1.3.0"
-   git push
-   ```
-
-### Adding New Features
-
-1. Infrastructure changes → Update `fictional-computing-machine` repo
-2. Application changes → Update `workshop` scripts
-3. Keep separation clean!
-
----
-
-## License
-
-This workshop is maintained by Gremlin for demonstration purposes.
