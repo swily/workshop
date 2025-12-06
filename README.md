@@ -2,10 +2,13 @@
 
 Automated deployment of OpenTelemetry Demo application with integrated monitoring (Prometheus/Grafana) and Gremlin chaos engineering on AWS EKS. Infrastructure managed by Terraform, applications deployed via Kubernetes.
 
+**Status:** ✅ Ready for Testing (Refactoring Complete - 2025-10-21)
+
 ---
 
 ## Table of Contents
 
+- [Repository Architecture](#repository-architecture)
 - [What This Does](#what-this-does)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
@@ -13,7 +16,48 @@ Automated deployment of OpenTelemetry Demo application with integrated monitorin
 - [Credential Management](#credential-management)
 - [Common Workflows](#common-workflows)
 - [What Gets Created](#what-gets-created)
+- [Recent Improvements](#recent-improvements)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Repository Architecture
+
+This workshop uses **two separate repositories** that work together:
+
+### 1. fictional-computing-machine (Infrastructure)
+- **Repository:** https://github.com/gremlin/fictional-computing-machine
+- **Purpose:** Terraform modules for AWS infrastructure
+- **Contains:** EKS, ALB, Route53, IAM, Secrets Manager configurations
+- **Versioning:** Git tags/branches (referenced via `?ref=main`)
+
+### 2. workshop (Orchestration)
+- **Repository:** This repository
+- **Purpose:** Deployment orchestration and application management
+- **Contains:** Deployment scripts, monitoring setup, Gremlin integration
+- **Uses:** fictional-computing-machine modules via Terraform
+
+### How They Work Together
+
+```
+workshop.sh → lib/terraform.sh → Generates workspace
+                                 ↓
+                    module "workshop" {
+                      source = "git::https://github.com/gremlin/
+                                fictional-computing-machine.git//
+                                modules/workshop?ref=main"
+                    }
+                                 ↓
+                    Terraform creates infrastructure
+                                 ↓
+                    workshop.sh deploys applications
+```
+
+**Key Benefits:**
+- **Separation:** Infrastructure code separate from application code
+- **Reusability:** fictional-computing-machine modules used by multiple projects
+- **Versioning:** Pin to specific infrastructure versions
+- **Updates:** Update infrastructure independently from applications
 
 ---
 
@@ -44,6 +88,29 @@ This workshop script automates the deployment of:
 ---
 
 ## Prerequisites
+
+### Required Repository
+
+This workshop requires the `fictional-computing-machine` repository to be cloned alongside this repository:
+
+```bash
+# Clone both repositories in the same parent directory
+cd ~/your-workspace
+git clone https://github.com/gremlin/fictional-computing-machine.git
+git clone https://github.com/your-org/workshop.git
+
+# Directory structure should be:
+# ~/your-workspace/
+# ├── fictional-computing-machine/
+# └── workshop/
+```
+
+The workshop automatically references Terraform modules from the local `fictional-computing-machine` repository.
+
+**Custom path:** Set `FCM_LOCAL_PATH` environment variable if your repos are in different locations:
+```bash
+export FCM_LOCAL_PATH="/path/to/fictional-computing-machine"
+```
 
 ### Required Tools
 
@@ -84,10 +151,14 @@ brew install jq
    - Route53 DNS management
    - Secrets Manager access
    - S3 (for Terraform state)
+   - DynamoDB (for Terraform state locking)
 
-3. **Terraform State Backend** (already configured):
-   - S3 bucket: `gremlin-terraform-state-us-east-2`
-   - DynamoDB table: `gremlin-terraform-locks`
+3. **Terraform State Backend** (automatically created):
+   - The workshop automatically creates these shared resources if they don't exist:
+     - S3 bucket: `gremlin-terraform-state-us-east-2` (with versioning and encryption)
+     - DynamoDB table: `gremlin-terraform-locks` (for state locking)
+   - All users share the same backend for collaboration
+   - Each deployment gets its own state file: `workshop/{subdomain}/terraform.tfstate`
 
 ### Gremlin Account
 
@@ -126,6 +197,12 @@ aws secretsmanager create-secret \
     --region "$REGION"
 
 aws secretsmanager create-secret \
+    --name "${OWNER}/gremlin_team_secret" \
+    --description "Gremlin Team Secret for ${OWNER}" \
+    --secret-string "YOUR_TEAM_SECRET_HERE" \
+    --region "$REGION"
+
+aws secretsmanager create-secret \
     --name "${OWNER}/gremlin_team_private_key" \
     --description "Gremlin Team Private Key for ${OWNER}" \
     --secret-string "$(cat ~/Downloads/team-private-key.pem)" \
@@ -136,10 +213,11 @@ aws secretsmanager create-secret \
 
 ```bash
 ./workshop.sh \
+    --action build_new \
     --subdomain alexs \
     --owner alex.smith \
     --enable-eks \
-    --action create_new
+    --monitoring grafana
 ```
 
 That's it! The script will:
@@ -780,13 +858,49 @@ TARGET_GROUP_ARN    SUBDOMAIN               service annotations
 
 ---
 
+## Recent Improvements
+
+### Code Refactoring (2025-10-21)
+
+**Eliminated ~101 lines of duplicate code** and unified installation patterns:
+
+1. **✅ Unified Gremlin Setup**
+   - Created `lib/gremlin.sh` with shared functions
+   - Created `lib/deployment.sh` with deployment helpers
+   - All 3 actions now use same code paths
+
+2. **✅ Automatic Credential Resolution**
+   - Function: `ensure_gremlin_credentials()`
+   - Auto-resolves from owner → Secrets Manager
+   - Falls back to subdomain → owner lookup
+   - **No more manual credential export required**
+
+3. **✅ Idempotency Implemented**
+   - `install_gremlin()` checks if already installed
+   - `fix_gremlin_ec2_permissions()` checks if policy attached
+   - Safe to run multiple times without conflicts
+
+4. **✅ EC2 Permissions in Correct Location**
+   - Moved from monitoring setup to cluster setup
+   - Runs during infrastructure provisioning (correct)
+
+5. **✅ Cross-Namespace Services Added**
+   - Now included in all actions (was missing from `deploy_existing`)
+   - Enables monitoring stack routing through ALB
+
+**Result:** Consistent, maintainable, idempotent deployments across all actions.
+
+---
+
 ## File Structure
 
 ```
 workshop/
 ├── workshop.sh                    # Main orchestration script
 ├── lib/
-│   ├── terraform.sh              # Terraform wrapper (NEW)
+│   ├── terraform.sh              # Terraform wrapper
+│   ├── gremlin.sh                # Unified Gremlin functions (NEW)
+│   ├── deployment.sh             # Shared deployment functions (NEW)
 │   ├── common.sh                 # Shared utilities
 │   ├── cluster.sh                # Cluster operations
 │   ├── monitoring.sh             # Monitoring setup

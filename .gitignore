@@ -41,3 +41,10 @@ kubeconfig*
 
 # Helm charts
 charts/*.tgz
+
+# Cluster state files (deployment-specific)
+build_scripts/demo/cluster-state.json
+deploy_newrelic.sh
+GREMLIN_NR_DEMO_CHEATSHEET.md
+NEW_RELIC_HEALTH_CHECK_SETUP.md
+GREMLIN_NR_SYNTHETIC_HEALTH_CHECK.md

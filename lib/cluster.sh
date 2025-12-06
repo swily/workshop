@@ -54,18 +54,29 @@ configure_cluster_base() {
     # Ensure we're connected to the right cluster
     update_kubeconfig "$cluster_name" "$AWS_REGION"
     
-    # Install AWS Load Balancer Controller
+    # Install AWS Load Balancer Controller (without problematic webhooks)
     install_aws_load_balancer_controller "$cluster_name"
     
-    # Install Istio if requested
+    # Fix Gremlin EC2 permissions
+    # This allows Gremlin agent to discover EC2 instances for service mapping
+    if command -v fix_gremlin_ec2_permissions &>/dev/null; then
+        fix_gremlin_ec2_permissions "$cluster_name" "$AWS_REGION" || {
+            log_warning "EC2 permissions fix failed, continuing anyway..."
+        }
+    fi
+    
+    # Install Istio if explicitly requested via flag
     if [ "$install_istio" = "true" ]; then
+        log_info "Installing Istio (optional service mesh)"
         install_istio
+    else
+        log_info "Skipping Istio installation (use --install-istio flag to enable)"
     fi
     
     # Create monitoring namespace
     ensure_namespace "monitoring"
     
-    # Install monitoring base components
+    # Install monitoring base components based on selected platform
     case "$monitoring_type" in
         "grafana"|"prometheus")
             install_prometheus_operator
@@ -75,6 +86,12 @@ configure_cluster_base() {
             ;;
         "newrelic")
             log_info "New Relic will be configured during monitoring setup"
+            ;;
+        "datadog")
+            log_info "Datadog will be configured during monitoring setup"
+            ;;
+        "appdynamics")
+            log_info "AppDynamics will be configured during monitoring setup"
             ;;
         *)
             log_info "Skipping monitoring base installation for: $monitoring_type"
@@ -107,12 +124,13 @@ install_aws_load_balancer_controller() {
         --policy-document file://iam_policy.json \
         --region "$AWS_REGION" 2>/dev/null || log_info "IAM policy already exists"
     
-    # Create IAM service account
+    # Create IAM service account with cluster-specific role name to avoid conflicts
+    local role_name="AmazonEKSLoadBalancerControllerRole-${cluster_name}"
     eksctl create iamserviceaccount \
         --cluster="$cluster_name" \
         --namespace=kube-system \
         --name=aws-load-balancer-controller \
-        --role-name "AmazonEKSLoadBalancerControllerRole" \
+        --role-name "$role_name" \
         --attach-policy-arn=arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):policy/AWSLoadBalancerControllerIAMPolicy \
         --approve \
         --region="$AWS_REGION" 2>/dev/null || log_info "Service account already exists"
@@ -120,12 +138,18 @@ install_aws_load_balancer_controller() {
     # Add EKS Helm repository
     ensure_helm_repo "eks" "https://aws.github.io/eks-charts"
     
-    # Install AWS Load Balancer Controller
+    # Get VPC ID for the cluster (required for Fargate/non-EC2 nodes)
+    local vpc_id=$(aws eks describe-cluster --name "$cluster_name" --region "$AWS_REGION" --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+    log_info "Cluster VPC ID: $vpc_id"
+    
+    # Install AWS Load Balancer Controller (without webhooks to avoid blocking issues)
     helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
         -n kube-system \
         --set clusterName="$cluster_name" \
         --set serviceAccount.create=false \
-        --set serviceAccount.name=aws-load-balancer-controller
+        --set serviceAccount.name=aws-load-balancer-controller \
+        --set vpcId="$vpc_id" \
+        --set enableWebhooks=false
     
     # Wait for deployment to be ready
     wait_for_pods "kube-system" "app.kubernetes.io/name=aws-load-balancer-controller"

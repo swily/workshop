@@ -4,6 +4,9 @@
 # Provides shared functionality across all workshop components
 #
 
+# Mark common functions as loaded
+export COMMON_FUNCTIONS_LOADED=true
+
 # Colors for output
 export RED='\033[0;31m'
 export GREEN='\033[0;32m'
@@ -238,36 +241,42 @@ export_cluster_state() {
     
     log_info "Exporting cluster state for health check creation..."
     
-    # Discover ALB endpoints dynamically
+    # Use SUBDOMAIN if available, otherwise fallback to cluster_name
+    local dns_prefix="${SUBDOMAIN:-$cluster_name}"
+    
+    # Discover ALB endpoints dynamically (use new ingress names)
     log_info "Discovering ALB endpoints..."
     
-    local frontend_alb=$(kubectl get ingress -n otel-demo frontend-proxy -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-    local grafana_monitoring_alb=$(kubectl get ingress -n monitoring grafana-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-    local grafana_otel_alb=$(kubectl get ingress -n otel-demo grafana-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-    local prometheus_alb=$(kubectl get ingress -n monitoring prometheus-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+    local frontend_alb=$(kubectl get ingress -n otel-demo frontend-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+    local grafana_monitoring_alb=$(kubectl get ingress -n monitoring monitoring-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
     
-    # Ingress-only: no fallback to LoadBalancer Services
+    # Detect HTTPS scheme
+    local scheme="https"
+    if [[ -z "$(kubectl get ingress -n otel-demo frontend-ingress -o jsonpath='{.metadata.annotations.alb\.ingress\.kubernetes\.io/certificate-arn}' 2>/dev/null)" ]]; then
+        scheme="http"
+    fi
     
     # Preferred FQDN (DNS first, fallback to ALB hostname)
-    local frontend_fqdn
-    frontend_fqdn=$(get_frontend_fqdn)
+    local frontend_fqdn="demo-frontend.${dns_prefix}.gremlinpoc.com"
+    local monitoring_fqdn="monitoring.${dns_prefix}.gremlinpoc.com"
 
     # Create state file
     cat > "$output_file" << EOF
 {
   "cluster_name": "$cluster_name",
+  "subdomain": "$dns_prefix",
   "region": "$region",
+  "scheme": "$scheme",
   "endpoints": {
-    "frontend": "${frontend_alb:+http://$frontend_alb}",
-    "frontend_fqdn": "${frontend_fqdn:+http://$frontend_fqdn}",
-    "grafana_monitoring": "${grafana_monitoring_alb:+http://$grafana_monitoring_alb}",
-    "grafana_otel": "${grafana_otel_alb:+http://$grafana_otel_alb}",
-    "prometheus": "${prometheus_alb:+http://$prometheus_alb}"
+    "frontend": "${frontend_alb:+${scheme}://$frontend_alb}",
+    "frontend_fqdn": "${scheme}://${frontend_fqdn}",
+    "grafana_monitoring": "${grafana_monitoring_alb:+${scheme}://$grafana_monitoring_alb}",
+    "monitoring_fqdn": "${scheme}://${monitoring_fqdn}"
   },
   "dns_mappings": {
-    "demo-frontend.$cluster_name.gremlinpoc.com": "frontend",
-    "monitoring.$cluster_name.gremlinpoc.com": "grafana_monitoring",
-    "monitoring.$cluster_name.gremlinpoc.com/prometheus": "prometheus"
+    "${frontend_fqdn}": "frontend",
+    "${monitoring_fqdn}": "grafana_monitoring",
+    "${monitoring_fqdn}/prometheus": "prometheus"
   },
   "deployment_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }

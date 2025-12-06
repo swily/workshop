@@ -157,6 +157,7 @@ setup_externaldns() {
     fi
 
     # Install/upgrade ExternalDNS
+    # Use registry.k8s.io instead of docker.io to avoid rate limits
     helm upgrade --install external-dns bitnami/external-dns \
         --namespace kube-system \
         --set provider=aws \
@@ -164,7 +165,13 @@ setup_externaldns() {
         --set txtOwnerId="workshop-${CLUSTER_NAME}" \
         --set domainFilters[0]="${BASE_DOMAIN}" \
         --set serviceAccount.create=true \
-        ${sa_annotations}
+        --set image.registry=registry.k8s.io \
+        --set image.repository=external-dns/external-dns \
+        --set image.tag=v0.14.0 \
+        ${sa_annotations} || {
+            log_warning "ExternalDNS installation failed - DNS records will need manual creation"
+            return 0
+        }
 
     log_success "ExternalDNS is configured"
 }
@@ -192,8 +199,9 @@ setup_grafana_monitoring() {
             --set grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD:-admin123}
     fi
     
-    # Install OpenTelemetry monitoring dashboards
-    install_otel_dashboards
+    # NOTE: Dashboards are included in kube-prometheus-stack Helm chart
+    # No need to install separately - removed redundant install_otel_dashboards call
+    
     # Ensure Jaeger datasource is available in central Grafana
     ensure_grafana_jaeger_datasource
     
@@ -430,29 +438,7 @@ EOF
     log_success "AppDynamics monitoring setup completed"
 }
 
-# Function to install OpenTelemetry dashboards
-install_otel_dashboards() {
-    log_info "Installing OpenTelemetry dashboards..."
-    
-    if is_dry_run; then
-        log_warning "[DRY RUN] Would install OpenTelemetry dashboards"
-        return 0
-    fi
-    
-    # Create ConfigMap with dashboard definitions
-    kubectl create configmap otel-dashboards \
-        --namespace monitoring \
-        --from-file="$SCRIPT_DIR/monitoring/grafana/dashboards/" \
-        --dry-run=client -o yaml | kubectl apply -f -
-    
-    # Label the ConfigMap so Grafana picks it up
-    kubectl label configmap otel-dashboards \
-        --namespace monitoring \
-        grafana_dashboard=1 \
-        --overwrite
-    
-    log_success "OpenTelemetry dashboards installed"
-}
+# NOTE: Dashboard installation removed - kube-prometheus-stack Helm chart includes dashboards
 
 # Function to setup Grafana ingress
 setup_grafana_ingress() {
@@ -543,24 +529,11 @@ setup_gremlin_monitoring() {
         return 0
     fi
     
-    # Fix Gremlin EC2 permissions for service discovery
-    log_info "Fixing Gremlin EC2 permissions for service discovery..."
-    local node_role_name
-    node_role_name=$(aws eks describe-nodegroup --cluster-name "$CLUSTER_NAME" --nodegroup-name "$(aws eks list-nodegroups --cluster-name "$CLUSTER_NAME" --region "$AWS_REGION" --query 'nodegroups[0]' --output text)" --region "$AWS_REGION" --query 'nodegroup.nodeRole' --output text | awk -F'/' '{print $NF}')
+    # NOTE: EC2 permissions are now handled in configure_cluster_base() via lib/gremlin.sh
+    # NOTE: Gremlin installation is now handled by setup_gremlin_complete() in lib/gremlin.sh
+    # NOTE: Annotations are now handled by setup_gremlin_complete() in lib/gremlin.sh
     
-    if [ -n "$node_role_name" ]; then
-        log_info "Attaching EC2ReadOnlyAccess policy to node role: $node_role_name"
-        aws iam attach-role-policy --role-name "$node_role_name" --policy-arn "arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess" 2>/dev/null || log_warning "Policy may already be attached"
-    fi
-    
-    # Gremlin installation is already handled earlier in the workflow; do not reinstall here.
-    
-    # Apply enhanced Gremlin annotations for service discovery (single source of truth)
-    log_info "Applying enhanced Gremlin service annotations..."
-    export GREMLIN_TEAM_ID="$GREMLIN_TEAM_ID"
-    "$REPO_ROOT/config/gremlin/gremlin_annotations.sh" ${GREMLIN_TEAM_ID:+-t "$GREMLIN_TEAM_ID"}
-    
-    # Create health checks using new healthchecks.sh script
+    # Create health checks using healthchecks.sh script
     if [ -f "$REPO_ROOT/build_scripts/demo/healthchecks.sh" ]; then
         log_info "Creating Gremlin health checks..."
         export SUBDOMAIN="${SUBDOMAIN}"
@@ -569,73 +542,9 @@ setup_gremlin_monitoring() {
             --platform all \
             --subdomain "$SUBDOMAIN" \
             --cluster-name "$CLUSTER_NAME"
-    elif [ -f "$REPO_ROOT/monitoring/gremlin/create_health_checks.sh" ]; then
-        echo -e "${BLUE}🔍 Waiting for DNS resolution before health check creation...${NC}"
-        # Wait for consolidated ALB hostname to be available
-        local consolidated_alb
-        consolidated_alb=$(kubectl get ingress -n otel-demo consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-
-        local attempts=0
-        local max_attempts=12
-        while [ $attempts -lt $max_attempts ] && [ -z "$consolidated_alb" ]; do
-            echo -e "${YELLOW}  Waiting for consolidated ALB hostname... (attempt $((attempts+1))/$max_attempts)${NC}"
-            sleep 10
-            consolidated_alb=$(kubectl get ingress -n otel-demo consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-            attempts=$((attempts+1))
-        done
-        
-        if [ -n "$consolidated_alb" ]; then
-            echo -e "${GREEN}✅ ALB hostnames resolved:${NC}"
-            echo -e "  Consolidated: http://$consolidated_alb"
-            echo ""
-            
-            # Prompt user for health check creation
-            echo -e "${BLUE}Would you like to automatically create Gremlin health checks?${NC}"
-            echo "1) Yes - Create health checks automatically"
-            echo "2) No - Print URLs for manual creation in Gremlin UI"
-            echo ""
-            read -p "Choose option (1-2): " health_check_choice
-            
-            case $health_check_choice in
-                1)
-                    echo -e "${YELLOW}Creating health checks automatically...${NC}"
-                    # Prefer HTTPS if ACM is enabled
-                    local scheme="http"
-                    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
-                        scheme="https"
-                    fi
-                    export PROMETHEUS_URL="$scheme://$consolidated_alb/prometheus/api/v1/alerts"
-                    export GRAFANA_URL="$scheme://$consolidated_alb/grafana/api/health"
-                    "$REPO_ROOT/monitoring/gremlin/create_health_checks.sh" --auto-mode
-                    ;;
-                2|*)
-                    echo -e "${BLUE}📋 Manual Health Check Creation URLs:${NC}"
-                    echo ""
-                    echo -e "${GREEN}Prometheus Health Check:${NC}"
-                    echo -e "  Name: prometheus-alerts-$(date +%s)"
-                    local scheme2="http"; if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then scheme2="https"; fi
-                    echo -e "  URL: $scheme2://$consolidated_alb/prometheus/api/v1/alerts"
-                    echo -e "  Method: GET"
-                    echo -e "  Expected Status: 200"
-                    echo -e "  Category: ERRORS"
-                    echo ""
-                    echo -e "${GREEN}Grafana Health Check:${NC}"
-                    echo -e "  Name: grafana-health-$(date +%s)"
-                    echo -e "  URL: $scheme2://$consolidated_alb/grafana/api/health"
-                    echo -e "  Method: GET"
-                    echo -e "  Expected Status: 200"
-                    echo -e "  Category: ERRORS"
-                    echo ""
-                    echo -e "${BLUE}Create these manually in the Gremlin UI${NC}"
-                    ;;
-            esac
-        else
-            echo -e "${YELLOW}⚠️  ALB hostnames not available after waiting. Printing fallback URLs:${NC}"
-            echo ""
-            echo -e "${BLUE}📋 Fallback Health Check URLs (use when ALBs are ready):${NC}"
-            echo -e "  Consolidated: kubectl get ingress -n otel-demo consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'"
-            echo -e "  Then use: http://HOSTNAME/prometheus/api/v1/alerts (Prometheus) and http://HOSTNAME/grafana/api/health (Grafana)"
-        fi
+    else
+        log_warning "Health checks script not found: $REPO_ROOT/build_scripts/demo/healthchecks.sh"
+        log_info "Health checks must be created manually in Gremlin UI"
     fi
     
     log_success "Gremlin monitoring setup completed"
@@ -783,39 +692,41 @@ verify_nameservers() {
     log_success "Nameservers verified correctly"
 }
 
-# Create consolidated frontend ingress
+# Create consolidated frontend ingress (uses Terraform-created ALB and certificate)
 create_frontend_ingress() {
     log_info "Creating consolidated frontend ingress..."
     
-    local frontend_hostname="demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
-    local listen_ports='[{"HTTP":80}]'
+    # Use SUBDOMAIN (not CLUSTER_NAME) for hostname
+    local frontend_hostname="demo-frontend.${SUBDOMAIN}.${BASE_DOMAIN:-gremlinpoc.com}"
+    
+    # Get ACM certificate ARN from Terraform outputs
+    # Try multiple possible terraform workspace locations
+    local cert_arn=$(cd "$REPO_ROOT/../terraform/workspace/${SUBDOMAIN}" 2>/dev/null && terraform output -raw acm_certificate_arn 2>/dev/null || \
+                     cd "/Users/seanwiley/terraform/workspace/${SUBDOMAIN}" 2>/dev/null && terraform output -raw acm_certificate_arn 2>/dev/null || echo "")
+    
+    local listen_ports='[{"HTTP":80,"HTTPS":443}]'
     local tls_annots=""
     
-    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
-        listen_ports='[{"HTTP":80,"HTTPS":443}]'
+    if [[ -n "$cert_arn" ]]; then
         tls_annots="    alb.ingress.kubernetes.io/ssl-redirect: '443'
-    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}"
+    alb.ingress.kubernetes.io/certificate-arn: ${cert_arn}"
+        log_info "Using ACM certificate: ${cert_arn}"
+    else
+        log_warning "No ACM certificate found, using HTTP only"
+        listen_ports='[{"HTTP":80}]'
     fi
     
     cat << EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${CLUSTER_NAME:-default}-consolidated-demo-ingress
+  name: frontend-ingress
   namespace: otel-demo
   annotations:
-    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/group.name: ${SUBDOMAIN}-shared
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '${listen_ports}'
-    alb.ingress.kubernetes.io/backend-protocol: HTTP
-    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
-    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
-    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
-    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
-    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=600
-    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
-    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
 ${tls_annots}
 spec:
   ingressClassName: alb
@@ -835,37 +746,42 @@ EOF
     log_success "Frontend ingress created: ${frontend_hostname}"
 }
 
-# Create monitoring ingress
+# Create monitoring ingress (uses Terraform-created ALB and certificate)
 create_monitoring_ingress() {
     log_info "Creating monitoring ingress..."
     
-    local monitoring_hostname="monitoring.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
-    local listen_ports='[{"HTTP":80}]'
+    # Use SUBDOMAIN (not CLUSTER_NAME) for hostname
+    local monitoring_hostname="monitoring.${SUBDOMAIN}.${BASE_DOMAIN:-gremlinpoc.com}"
+    
+    # Get ACM certificate ARN from Terraform outputs
+    # Try multiple possible terraform workspace locations
+    local cert_arn=$(cd "$REPO_ROOT/../terraform/workspace/${SUBDOMAIN}" 2>/dev/null && terraform output -raw acm_certificate_arn 2>/dev/null || \
+                     cd "/Users/seanwiley/terraform/workspace/${SUBDOMAIN}" 2>/dev/null && terraform output -raw acm_certificate_arn 2>/dev/null || echo "")
+    
+    local listen_ports='[{"HTTP":80,"HTTPS":443}]'
     local tls_annots=""
     
-    if [[ "${HTTPS_MODE:-off}" == "alb-acm" && -n "${ACM_CERT_ARN:-}" ]]; then
-        listen_ports='[{"HTTP":80,"HTTPS":443}]'
+    if [[ -n "$cert_arn" ]]; then
         tls_annots="    alb.ingress.kubernetes.io/ssl-redirect: '443'
-    alb.ingress.kubernetes.io/certificate-arn: ${ACM_CERT_ARN}"
+    alb.ingress.kubernetes.io/certificate-arn: ${cert_arn}"
+        log_info "Using ACM certificate: ${cert_arn}"
+    else
+        log_warning "No ACM certificate found, using HTTP only"
+        listen_ports='[{"HTTP":80}]'
     fi
     
     cat << EOF | kubectl apply -f -
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ${CLUSTER_NAME:-default}-monitoring-ingress
+  name: monitoring-ingress
   namespace: monitoring
   annotations:
-    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/group.name: ${SUBDOMAIN}-shared
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '${listen_ports}'
-    alb.ingress.kubernetes.io/backend-protocol: HTTP
     alb.ingress.kubernetes.io/healthcheck-path: /api/health
-    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
-    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "5"
-    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
-    alb.ingress.kubernetes.io/unhealthy-threshold-count: "2"
 ${tls_annots}
 spec:
   ingressClassName: alb
@@ -894,32 +810,35 @@ update_route53_records() {
         return 0
     fi
     
-    # Get hosted zone ID
-    local hz_id=$(aws route53 list-hosted-zones-by-name --dns-name "$BASE_DOMAIN" \
-        --query "HostedZones[0].Id" --output text 2>/dev/null | sed 's|/hostedzone/||' || echo "")
+    # Get hosted zone ID for the subdomain
+    local subdomain_zone="${SUBDOMAIN}.${BASE_DOMAIN}"
+    local hz_id=$(aws route53 list-hosted-zones --query "HostedZones[?Name=='${subdomain_zone}.'].Id" --output text 2>/dev/null | sed 's|/hostedzone/||' || echo "")
     
     if [ -z "$hz_id" ]; then
-        log_warning "Hosted zone for $BASE_DOMAIN not found, skipping DNS updates"
+        log_warning "Hosted zone for $subdomain_zone not found, skipping DNS updates"
         return 0
     fi
     
-    # Wait for ALB hostnames to be available
-    log_info "Waiting for ALB hostnames..."
+    # Update Route53 DNS records (manual fallback if ExternalDNS fails)
+    # Get ingress names (updated to match new names)
+    local frontend_ingress="frontend-ingress"
+    local monitoring_ingress="monitoring-ingress"
+    
     local frontend_alb=""
     local monitoring_alb=""
     local attempts=0
     local max_attempts=30
     
     while [ $attempts -lt $max_attempts ]; do
-        frontend_alb=$(kubectl -n otel-demo get ingress consolidated-demo-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
-        monitoring_alb=$(kubectl -n monitoring get ingress monitoring-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        frontend_alb=$(kubectl -n otel-demo get ingress "$frontend_ingress" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        monitoring_alb=$(kubectl -n monitoring get ingress "$monitoring_ingress" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
         
         if [ -n "$frontend_alb" ] && [ -n "$monitoring_alb" ]; then
             break
         fi
         
-        attempts=$((attempts+1))
-        sleep 5
+        attempts=$((attempts + 1))
+        sleep 2
     done
     
     if [ -z "$frontend_alb" ] || [ -z "$monitoring_alb" ]; then
@@ -929,36 +848,30 @@ update_route53_records() {
     
     log_info "Creating DNS records..."
     
-    # Frontend DNS record
-    local frontend_hostname="demo-frontend.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
+    # Frontend DNS record - use CNAME to ALB
+    local frontend_hostname="demo-frontend.${SUBDOMAIN}.${BASE_DOMAIN}"
     aws route53 change-resource-record-sets --hosted-zone-id "$hz_id" --change-batch "{
         \"Changes\": [{
             \"Action\": \"UPSERT\",
             \"ResourceRecordSet\": {
                 \"Name\": \"${frontend_hostname}\",
-                \"Type\": \"A\",
-                \"AliasTarget\": {
-                    \"HostedZoneId\": \"Z3AADJGX6KTTL2\",
-                    \"DNSName\": \"${frontend_alb}\",
-                    \"EvaluateTargetHealth\": false
-                }
+                \"Type\": \"CNAME\",
+                \"TTL\": 300,
+                \"ResourceRecords\": [{\"Value\": \"${frontend_alb}\"}]
             }
         }]
     }" >/dev/null
     
-    # Monitoring DNS record
-    local monitoring_hostname="monitoring.${CLUSTER_SUBDOMAIN:-${CLUSTER_NAME:-default}.${BASE_DOMAIN:-gremlinpoc.com}}"
+    # Monitoring DNS record - use CNAME to ALB
+    local monitoring_hostname="monitoring.${SUBDOMAIN}.${BASE_DOMAIN}"
     aws route53 change-resource-record-sets --hosted-zone-id "$hz_id" --change-batch "{
         \"Changes\": [{
             \"Action\": \"UPSERT\",
             \"ResourceRecordSet\": {
                 \"Name\": \"${monitoring_hostname}\",
-                \"Type\": \"A\",
-                \"AliasTarget\": {
-                    \"HostedZoneId\": \"Z3AADJGX6KTTL2\",
-                    \"DNSName\": \"${monitoring_alb}\",
-                    \"EvaluateTargetHealth\": false
-                }
+                \"Type\": \"CNAME\",
+                \"TTL\": 300,
+                \"ResourceRecords\": [{\"Value\": \"${monitoring_alb}\"}]
             }
         }]
     }" >/dev/null

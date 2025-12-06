@@ -35,7 +35,7 @@ PLATFORMS=()
 # Print banner
 print_banner() {
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                    🏥 HEALTH CHECKS SETUP 🏥                ║${NC}"
+    echo -e "${CYAN}║               HEALTH CHECKS SETUP                            ║${NC}"
     echo -e "${CYAN}║          Gremlin Health Check & Authentication Manager       ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -99,7 +99,7 @@ parse_arguments() {
                 exit 0
                 ;;
             *)
-                echo -e "${RED}❌ Unknown option: $1${NC}"
+                echo -e "${RED}[ERROR] Unknown option: $1${NC}"
                 show_usage
                 exit 1
                 ;;
@@ -119,24 +119,24 @@ parse_arguments() {
 
 # Validate prerequisites
 validate_prerequisites() {
-    echo -e "${BLUE}🔍 Validating prerequisites...${NC}"
+    echo -e "${BLUE}[INFO] Validating prerequisites...${NC}"
     
     # Check required tools
     local required_tools=("kubectl" "jq" "curl")
     for tool in "${required_tools[@]}"; do
         if ! command -v "$tool" &> /dev/null; then
-            echo -e "${RED}❌ Required tool not found: $tool${NC}"
+            echo -e "${RED}[ERROR] Required tool not found: $tool${NC}"
             exit 1
         fi
     done
     
     # Check kubectl cluster connection
     if ! kubectl cluster-info &> /dev/null; then
-        echo -e "${RED}❌ Cannot connect to Kubernetes cluster${NC}"
+        echo -e "${RED}[ERROR] Cannot connect to Kubernetes cluster${NC}"
         exit 1
     fi
     
-    echo -e "${GREEN}✅ Prerequisites validated${NC}"
+    echo -e "${GREEN}[OK] Prerequisites validated${NC}"
 }
 
 # Load cluster state
@@ -144,28 +144,28 @@ load_cluster_state() {
     local state_file="$SCRIPT_DIR/cluster-state.json"
     
     if [ ! -f "$state_file" ]; then
-        echo -e "${YELLOW}⚠️  Cluster state file not found: $state_file${NC}"
-        echo -e "${BLUE}💡 Run './workshop.sh' first to generate cluster state${NC}"
+        echo -e "${YELLOW}[WARN]  Cluster state file not found: $state_file${NC}"
+        echo -e "${BLUE}[TIP] Run './workshop.sh' first to generate cluster state${NC}"
         exit 1
     fi
     
-    echo -e "${BLUE}📄 Loading cluster state from: $state_file${NC}"
+    echo -e "${BLUE}[FILE] Loading cluster state from: $state_file${NC}"
     
     # Export cluster info from state file
     export CLUSTER_NAME=$(jq -r '.cluster_name' "$state_file")
     export AWS_REGION=$(jq -r '.region' "$state_file")
     
-    echo -e "${GREEN}✅ Cluster state loaded: $CLUSTER_NAME in $AWS_REGION${NC}"
+    echo -e "${GREEN}[OK] Cluster state loaded: $CLUSTER_NAME in $AWS_REGION${NC}"
 }
 
 # Collect Gremlin credentials
 collect_gremlin_credentials() {
     if [[ "$VALIDATE_ONLY" == true ]]; then
-        echo -e "${BLUE}🔍 Validation mode - skipping credential collection${NC}"
+        echo -e "${BLUE}[INFO] Validation mode - skipping credential collection${NC}"
         return 0
     fi
     
-    echo -e "${BLUE}🔐 Collecting Gremlin credentials...${NC}"
+    echo -e "${BLUE}[AUTH] Collecting Gremlin credentials...${NC}"
     
     # Collect or validate Gremlin Team ID
     if [ -z "${GREMLIN_TEAM_ID:-}" ]; then
@@ -212,15 +212,15 @@ setup_dns_records() {
 
 # Discover cluster endpoints dynamically
 discover_cluster_endpoints() {
-    echo -e "${BLUE}🔍 Discovering cluster endpoints...${NC}"
-    
-    # Detect HTTPS scheme
-    local scheme="http"
-    if command -v get_consolidated_alb_scheme &>/dev/null; then
-        scheme=$(get_consolidated_alb_scheme)
-    fi
+    echo -e "${BLUE}[INFO] Discovering cluster endpoints...${NC}"
     
     local state_file="$SCRIPT_DIR/cluster-state.json"
+    
+    # Get scheme from state file, fallback to http
+    local scheme=$(jq -r '.scheme // "http"' "$state_file" 2>/dev/null)
+    if [[ -z "$scheme" ]] || [[ "$scheme" == "null" ]]; then
+        scheme="http"
+    fi
     
     # Get endpoints from state file
     FRONTEND_ALB=$(jq -r '.endpoints.frontend // empty' "$state_file" 2>/dev/null)
@@ -249,12 +249,18 @@ discover_cluster_endpoints() {
     GRAFANA_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "grafana_monitoring") | .key' "$state_file" 2>/dev/null || echo "monitoring.${dns_prefix}.gremlinpoc.com")
     PROMETHEUS_DNS=$(jq -r --arg cluster "$CLUSTER_NAME" '.dns_mappings | to_entries[] | select(.value == "prometheus") | .key' "$state_file" 2>/dev/null || echo "monitoring.${dns_prefix}.gremlinpoc.com/prometheus")
     
-    # Add scheme to DNS endpoints
-    FRONTEND_DNS="${scheme}://${FRONTEND_DNS}"
-    GRAFANA_DNS="${scheme}://${GRAFANA_DNS}"
-    PROMETHEUS_DNS="${scheme}://${PROMETHEUS_DNS}"
+    # Add scheme to DNS endpoints if they don't already have one
+    if [[ ! "$FRONTEND_DNS" =~ ^https?:// ]]; then
+        FRONTEND_DNS="${scheme}://${FRONTEND_DNS}"
+    fi
+    if [[ ! "$GRAFANA_DNS" =~ ^https?:// ]]; then
+        GRAFANA_DNS="${scheme}://${GRAFANA_DNS}"
+    fi
+    if [[ ! "$PROMETHEUS_DNS" =~ ^https?:// ]]; then
+        PROMETHEUS_DNS="${scheme}://${PROMETHEUS_DNS}"
+    fi
     
-    echo -e "${GREEN}✅ Endpoints discovered (using ${scheme}):${NC}"
+    echo -e "${GREEN}[OK] Endpoints discovered (using ${scheme}):${NC}"
     echo -e "   Frontend: ${FRONTEND_ALB:-$FRONTEND_DNS}"
     echo -e "   Grafana: ${GRAFANA_MONITORING_ALB:-$GRAFANA_DNS}"
     echo -e "   Prometheus: ${PROMETHEUS_ALB:-$PROMETHEUS_DNS}"
@@ -264,11 +270,11 @@ discover_cluster_endpoints() {
 # Wait for endpoint readiness
 wait_for_endpoint_readiness() {
     if [[ "$VALIDATE_ONLY" == true ]] || [[ "$DRY_RUN" == true ]]; then
-        echo -e "${BLUE}🔍 Skipping endpoint readiness check in validation/dry-run mode${NC}"
+        echo -e "${BLUE}[INFO] Skipping endpoint readiness check in validation/dry-run mode${NC}"
         return 0
     fi
     
-    echo -e "${BLUE}⏳ Waiting for endpoint readiness...${NC}"
+    echo -e "${BLUE}[WAIT] Waiting for endpoint readiness...${NC}"
     
     local endpoints_to_check=()
     
@@ -279,14 +285,16 @@ wait_for_endpoint_readiness() {
                 if [ -n "${PROMETHEUS_ALB:-}" ]; then
                     endpoints_to_check+=("$PROMETHEUS_ALB/api/v1/query?query=up")
                 else
-                    endpoints_to_check+=("http://$PROMETHEUS_DNS/api/v1/query?query=up")
+                    # PROMETHEUS_DNS already has scheme from discover_cluster_endpoints
+                    endpoints_to_check+=("$PROMETHEUS_DNS/api/v1/query?query=up")
                 fi
                 ;;
             "grafana")
                 if [ -n "${GRAFANA_MONITORING_ALB:-}" ]; then
                     endpoints_to_check+=("$GRAFANA_MONITORING_ALB/api/health")
                 else
-                    endpoints_to_check+=("http://$GRAFANA_DNS/api/health")
+                    # GRAFANA_DNS already has scheme from discover_cluster_endpoints
+                    endpoints_to_check+=("$GRAFANA_DNS/api/health")
                 fi
                 ;;
         esac
@@ -300,18 +308,18 @@ wait_for_endpoint_readiness() {
         
         while [ $attempt -le $max_attempts ]; do
             if curl -s --max-time 10 "$endpoint" > /dev/null 2>&1; then
-                echo -e "${GREEN}✅ Endpoint ready: $endpoint${NC}"
+                echo -e "${GREEN}[OK] Endpoint ready: $endpoint${NC}"
                 break
             else
-                echo -e "${YELLOW}⏳ Attempt $attempt/$max_attempts failed, waiting 30s...${NC}"
+                echo -e "${YELLOW}[WAIT] Attempt $attempt/$max_attempts failed, waiting 30s...${NC}"
                 sleep 30
                 ((attempt++))
             fi
         done
         
         if [ $attempt -gt $max_attempts ]; then
-            echo -e "${YELLOW}⚠️  Endpoint not ready after $max_attempts attempts: $endpoint${NC}"
-            echo -e "${BLUE}💡 Continuing anyway - DNS may still be propagating${NC}"
+            echo -e "${YELLOW}[WARN]  Endpoint not ready after $max_attempts attempts: $endpoint${NC}"
+            echo -e "${BLUE}[TIP] Continuing anyway - DNS may still be propagating${NC}"
         fi
         
         attempt=1
@@ -350,17 +358,17 @@ cleanup_gremlin_services() {
                         "https://api.gremlin.com/v1/services/$service_id?teamId=$GREMLIN_TEAM_ID" 2>/dev/null)
                     
                     if [ $? -eq 0 ]; then
-                        echo -e "${GREEN}✅ Service deleted: $service_id${NC}"
+                        echo -e "${GREEN}[OK] Service deleted: $service_id${NC}"
                     else
-                        echo -e "${YELLOW}⚠️  Failed to delete service: $service_id${NC}"
+                        echo -e "${YELLOW}[WARN]  Failed to delete service: $service_id${NC}"
                     fi
                 fi
             done
         else
-            echo -e "${BLUE}💡 No existing services found to cleanup${NC}"
+            echo -e "${BLUE}[TIP] No existing services found to cleanup${NC}"
         fi
     else
-        echo -e "${YELLOW}⚠️  Failed to retrieve existing services${NC}"
+        echo -e "${YELLOW}[WARN]  Failed to retrieve existing services${NC}"
     fi
     
     echo ""
@@ -369,7 +377,7 @@ cleanup_gremlin_services() {
 # Create Prometheus health checks
 create_prometheus_health_checks() {
     local platform="prometheus"
-    echo -e "${PURPLE}🔍 Creating Prometheus health checks...${NC}"
+    echo -e "${PURPLE}[INFO] Creating Prometheus health checks...${NC}"
     
     if [[ "$DRY_RUN" == true ]]; then
         echo -e "${BLUE}🧪 DRY RUN: Would create Prometheus health checks${NC}"
@@ -405,9 +413,9 @@ EOF
         -d "$integration_payload" 2>/dev/null)
     
     if [ $? -eq 0 ] && [ -n "$integration_response" ]; then
-        echo -e "${GREEN}✅ Prometheus authorization created/verified${NC}"
+        echo -e "${GREEN}[OK] Prometheus authorization created/verified${NC}"
     else
-        echo -e "${YELLOW}⚠️ Authorization may already exist, continuing...${NC}"
+        echo -e "${YELLOW}[WARN] Authorization may already exist, continuing...${NC}"
     fi
     
     # Create health check to monitor firing alerts count
@@ -445,7 +453,7 @@ EOF
 EOF
 )
             
-            echo -e "${BLUE}🏥 Creating Prometheus firing alerts health check...${NC}"
+            echo -e "${BLUE}[HEALTH] Creating Prometheus firing alerts health check...${NC}"
             local health_check_response=$(curl -s -X POST "https://api.gremlin.com/v1/status-checks?teamId=$GREMLIN_TEAM_ID" \
                 -H "Authorization: Key $GREMLIN_API_KEY" \
                 -H "Content-Type: application/json" \
@@ -455,14 +463,14 @@ EOF
                 # Check if response contains an error
                 local error_msg=$(echo "$health_check_response" | jq -r '.error // empty' 2>/dev/null)
                 if [ -n "$error_msg" ]; then
-                    echo -e "${RED}❌ Failed to create Prometheus health check: $error_msg${NC}"
+                    echo -e "${RED}[ERROR] Failed to create Prometheus health check: $error_msg${NC}"
                     echo -e "${YELLOW}Response: $health_check_response${NC}"
                 else
-                    echo -e "${GREEN}✅ Prometheus firing alerts health check created successfully${NC}"
-                    echo -e "${BLUE}🔗 URL: $prometheus_url/api/v1/alerts${NC}"
+                    echo -e "${GREEN}[OK] Prometheus firing alerts health check created successfully${NC}"
+                    echo -e "${BLUE}[LINK] URL: $prometheus_url/api/v1/alerts${NC}"
                 fi
             else
-                echo -e "${RED}❌ Failed to create Prometheus health check${NC}"
+                echo -e "${RED}[ERROR] Failed to create Prometheus health check${NC}"
                 echo -e "${YELLOW}Response: $health_check_response${NC}"
             fi
     
@@ -472,7 +480,7 @@ EOF
 # Create Grafana health checks
 create_grafana_health_checks() {
     local platform="grafana"
-    echo -e "${PURPLE}📊 Creating Grafana health checks...${NC}"
+    echo -e "${PURPLE}[METRICS] Creating Grafana health checks...${NC}"
     
     if [[ "$DRY_RUN" == true ]]; then
         echo -e "${BLUE}🧪 DRY RUN: Would create Grafana health checks${NC}"
@@ -518,9 +526,9 @@ EOF
         -d "$integration_payload" 2>/dev/null)
     
     if [ $? -eq 0 ] && [ -n "$integration_response" ]; then
-        echo -e "${GREEN}✅ Grafana authorization created/verified${NC}"
+        echo -e "${GREEN}[OK] Grafana authorization created/verified${NC}"
     else
-        echo -e "${YELLOW}⚠️ Authorization may already exist, continuing...${NC}"
+        echo -e "${YELLOW}[WARN] Authorization may already exist, continuing...${NC}"
     fi
     
     # Create health check to monitor firing alerts count via Grafana datasource proxy
@@ -558,7 +566,7 @@ EOF
 EOF
 )
             
-            echo -e "${BLUE}🏥 Creating Grafana firing alerts health check...${NC}"
+            echo -e "${BLUE}[HEALTH] Creating Grafana firing alerts health check...${NC}"
             local health_check_response=$(curl -s -X POST "https://api.gremlin.com/v1/status-checks?teamId=$GREMLIN_TEAM_ID" \
                 -H "Authorization: Key $GREMLIN_API_KEY" \
                 -H "Content-Type: application/json" \
@@ -568,20 +576,20 @@ EOF
                 # Check if response contains an error
                 local error_msg=$(echo "$health_check_response" | jq -r '.error // empty' 2>/dev/null)
                 if [ -n "$error_msg" ]; then
-                    echo -e "${RED}❌ Failed to create Grafana health check: $error_msg${NC}"
+                    echo -e "${RED}[ERROR] Failed to create Grafana health check: $error_msg${NC}"
                     echo -e "${YELLOW}Response: $health_check_response${NC}"
                 else
                     # API returns plain UUID string on success, not JSON
                     if [[ "$health_check_response" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-                        echo -e "${GREEN}✅ Grafana firing alerts health check created: $health_check_response${NC}"
-                        echo -e "${BLUE}🔗 URL: $grafana_url/api/datasources/proxy/1/api/v1/alerts${NC}"
+                        echo -e "${GREEN}[OK] Grafana firing alerts health check created: $health_check_response${NC}"
+                        echo -e "${BLUE}[LINK] URL: $grafana_url/api/datasources/proxy/1/api/v1/alerts${NC}"
                     else
-                        echo -e "${RED}❌ Failed to create Grafana health check (unexpected response)${NC}"
+                        echo -e "${RED}[ERROR] Failed to create Grafana health check (unexpected response)${NC}"
                         echo -e "${YELLOW}Response: $health_check_response${NC}"
                     fi
                 fi
             else
-                echo -e "${RED}❌ Failed to create Grafana health check - API call failed${NC}"
+                echo -e "${RED}[ERROR] Failed to create Grafana health check - API call failed${NC}"
             fi
     
     echo ""
@@ -589,7 +597,7 @@ EOF
 
 # Create platform-specific health checks
 create_platform_health_checks() {
-    echo -e "${CYAN}🏥 Creating health checks for platforms: ${PLATFORMS[*]}${NC}"
+    echo -e "${CYAN}[HEALTH] Creating health checks for platforms: ${PLATFORMS[*]}${NC}"
     
     for platform in "${PLATFORMS[@]}"; do
         case "$platform" in
@@ -600,13 +608,13 @@ create_platform_health_checks() {
                 create_grafana_health_checks
                 ;;
             "dynatrace")
-                echo -e "${YELLOW}⚠️  Dynatrace health checks not yet implemented${NC}"
+                echo -e "${YELLOW}[WARN]  Dynatrace health checks not yet implemented${NC}"
                 ;;
             "newrelic")
-                echo -e "${YELLOW}⚠️  New Relic health checks not yet implemented${NC}"
+                echo -e "${YELLOW}[WARN]  New Relic health checks not yet implemented${NC}"
                 ;;
             *)
-                echo -e "${RED}❌ Unknown platform: $platform${NC}"
+                echo -e "${RED}[ERROR] Unknown platform: $platform${NC}"
                 ;;
         esac
     done
@@ -614,7 +622,7 @@ create_platform_health_checks() {
 
 # Validate existing health checks
 validate_health_checks() {
-    echo -e "${BLUE}🔍 Validating existing health checks...${NC}"
+    echo -e "${BLUE}[INFO] Validating existing health checks...${NC}"
     
     if [[ "$DRY_RUN" == true ]]; then
         echo -e "${BLUE}🧪 DRY RUN: Would validate existing health checks${NC}"
@@ -629,15 +637,15 @@ validate_health_checks() {
         local health_check_count=$(echo "$health_checks_response" | jq '. | length' 2>/dev/null)
         
         if [ -n "$health_check_count" ] && [ "$health_check_count" != "null" ]; then
-            echo -e "${GREEN}✅ Found $health_check_count existing health checks${NC}"
+            echo -e "${GREEN}[OK] Found $health_check_count existing health checks${NC}"
             
             # Show health check details
             echo "$health_checks_response" | jq -r '.[] | "  • \(.name) (\(.identifier)) - \(.description)"' 2>/dev/null || true
         else
-            echo -e "${YELLOW}⚠️  No health checks found${NC}"
+            echo -e "${YELLOW}[WARN]  No health checks found${NC}"
         fi
     else
-        echo -e "${RED}❌ Failed to retrieve health checks${NC}"
+        echo -e "${RED}[ERROR] Failed to retrieve health checks${NC}"
     fi
     
     echo ""
@@ -646,11 +654,11 @@ validate_health_checks() {
 # Display summary
 display_summary() {
     echo -e "\n${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                    🏥 HEALTH CHECKS SUMMARY 🏥               ║${NC}"
+    echo -e "${CYAN}║                    [HEALTH] HEALTH CHECKS SUMMARY [HEALTH]               ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    echo -e "${GREEN}🎯 COMPLETED ACTIONS:${NC}"
+    echo -e "${GREEN}[TARGET] COMPLETED ACTIONS:${NC}"
     if [[ "$VALIDATE_ONLY" == true ]]; then
         echo -e "   • Validated existing health checks"
     elif [[ "$DRY_RUN" == true ]]; then
@@ -665,13 +673,13 @@ display_summary() {
     fi
     echo ""
     
-    echo -e "${BLUE}🔗 USEFUL LINKS:${NC}"
+    echo -e "${BLUE}[LINK] USEFUL LINKS:${NC}"
     echo -e "   • Gremlin Health Checks: https://app.gremlin.com/reliability/status-checks"
     echo -e "   • Gremlin Services: https://app.gremlin.com/services"
     echo -e "   • Team Dashboard: https://app.gremlin.com/team/$GREMLIN_TEAM_ID"
     echo ""
     
-    echo -e "${YELLOW}💡 NEXT STEPS:${NC}"
+    echo -e "${YELLOW}[TIP] NEXT STEPS:${NC}"
     echo -e "   1. Visit Gremlin dashboard to verify health checks"
     echo -e "   2. Run chaos experiments targeting your services"
     echo -e "   3. Monitor health check status during experiments"
@@ -689,7 +697,7 @@ main() {
     load_cluster_state
     
     if [[ "$VALIDATE_ONLY" == true ]]; then
-        echo -e "${BLUE}🔍 Running in validation mode...${NC}"
+        echo -e "${BLUE}[INFO] Running in validation mode...${NC}"
         collect_gremlin_credentials
         validate_health_checks
     else
@@ -704,7 +712,7 @@ main() {
     
     display_summary
     
-    echo -e "${GREEN}✅ Health checks setup completed successfully!${NC}"
+    echo -e "${GREEN}[OK] Health checks setup completed successfully!${NC}"
 }
 
 # Run main function with all arguments

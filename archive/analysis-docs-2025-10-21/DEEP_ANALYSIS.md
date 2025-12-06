@@ -58,7 +58,7 @@ create_and_deploy()
 **KEEP & MODIFY:**
 - ✅ `install_aws_load_balancer_controller()` - Still needed for K8s ingress → ALB
 - ✅ `deploy_otel.sh` - Application deployment (not infrastructure)
-- ✅ `gremlin_install.sh` - Modify to fetch from Secrets Manager 
+- ✅ `gremlin_install.sh` - Modify to fetch from Secrets Manager
 - ✅ `setup_comprehensive_monitoring()` - Application layer
 - ✅ Cross-namespace services - K8s resources, not infrastructure
 

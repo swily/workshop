@@ -173,6 +173,32 @@ default:
     - name: OTEL_COLLECTOR_NAME
       value: "opentelemetry-demo-otelcol"
 
+# Scale services to 2 replicas for Gremlin dependency detection
+# Gremlin requires at least 2 replicas to detect dependencies
+components:
+  frontend:
+    replicas: 2
+  frontendProxy:
+    replicas: 2
+  checkoutService:
+    replicas: 2
+  cartService:
+    replicas: 2
+  productCatalogService:
+    replicas: 2
+  recommendationService:
+    replicas: 2
+  adService:
+    replicas: 2
+  currencyService:
+    replicas: 2
+  paymentService:
+    replicas: 2
+  shippingService:
+    replicas: 2
+  emailService:
+    replicas: 2
+
 jaeger:
   enabled: $ENABLE_JAEGER
 prometheus:
@@ -233,12 +259,40 @@ EOF
     
     # Install OpenTelemetry demo
     log_info "Installing OpenTelemetry demo application..."
+    
+    # Check if release exists and has conflicts - uninstall if needed
+    if helm list -n "$NAMESPACE" | grep -q "opentelemetry-demo"; then
+        log_info "Existing release found - attempting upgrade..."
+        if helm upgrade opentelemetry-demo open-telemetry/opentelemetry-demo \
+            --namespace "$NAMESPACE" \
+            --version "$HELM_CHART_VERSION" \
+            --values "$values_file" \
+            --wait --timeout=10m 2>&1 | tee /tmp/helm-upgrade.log; then
+            log_success "OpenTelemetry demo upgraded successfully"
+            rm -f "$values_file"
+            return 0
+        else
+            # Check if it's a patch conflict
+            if grep -q "cannot patch\|order in patch list" /tmp/helm-upgrade.log; then
+                log_warning "Helm upgrade conflict detected - reinstalling cleanly..."
+                helm uninstall opentelemetry-demo -n "$NAMESPACE"
+                sleep 15
+                log_info "Proceeding with fresh install..."
+            else
+                log_error "Helm upgrade failed for unknown reason"
+                cat /tmp/helm-upgrade.log
+                return 1
+            fi
+        fi
+    fi
+    
+    # Fresh install (either first time or after uninstall)
+    # Suppress kubectl warnings about duplicate env vars and session affinity
     helm upgrade --install opentelemetry-demo open-telemetry/opentelemetry-demo \
         --namespace "$NAMESPACE" \
         --version "$HELM_CHART_VERSION" \
         --values "$values_file" \
-        --wait \
-        --timeout 10m
+        --wait --timeout=10m 2>&1 | grep -v "warnings.go" | grep -v "Warning:" || true
     
     # Cleanup temporary file
     rm -f "$values_file"

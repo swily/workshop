@@ -13,6 +13,8 @@ source "$SCRIPT_DIR/lib/ui.sh"
 source "$SCRIPT_DIR/lib/cluster.sh"
 source "$SCRIPT_DIR/lib/monitoring.sh"
 source "$SCRIPT_DIR/lib/terraform.sh"
+source "$SCRIPT_DIR/lib/gremlin.sh"
+source "$SCRIPT_DIR/lib/deployment.sh"
 
 # Enforce consolidated ingress mode (single ALB with path-based routing)
 export CONSOLIDATED_INGRESS=true
@@ -86,7 +88,10 @@ parse_arguments() {
                 ;;
             --cluster-name)
                 CLUSTER_NAME="$2"
-                SUBDOMAIN="$2"  # Map to subdomain for backwards compatibility
+                # Only set SUBDOMAIN if not already set (don't override for deploy_existing)
+                if [[ -z "$SUBDOMAIN" ]]; then
+                    SUBDOMAIN="$2"
+                fi
                 shift 2
                 ;;
             --region)
@@ -196,8 +201,7 @@ provision_infrastructure() {
     terraform_init "$workspace_dir"
     terraform_validate "$workspace_dir"
     
-    # Plan and apply
-    terraform_plan "$workspace_dir"
+    # Apply infrastructure
     terraform_apply "$workspace_dir"
     
     # Export outputs to environment
@@ -211,8 +215,13 @@ provision_infrastructure() {
     # Fetch Gremlin credentials from Secrets Manager
     fetch_gremlin_credentials
     
-    # Update kubeconfig
-    update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
+    # Update kubeconfig (CLUSTER_NAME now set by export_terraform_outputs)
+    if [[ -n "$CLUSTER_NAME" ]]; then
+        update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
+    else
+        log_error "CLUSTER_NAME not set after Terraform apply"
+        return 1
+    fi
     
     log_success "Infrastructure provisioned successfully"
 }
@@ -231,42 +240,30 @@ create_and_deploy() {
     CONSOLIDATED_INGRESS=true "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
         --cluster-name "$CLUSTER_NAME"
     
-    # Setup Gremlin
-    setup_gremlin_only
+    # Setup Gremlin (unified function)
+    setup_gremlin_complete "$CLUSTER_NAME" || {
+        log_warning "Gremlin setup failed, continuing with remaining deployment..."
+    }
     
-    # Deploy failure flags if requested
-    if [[ "$ENABLE_FAILURE_FLAGS" == "true" ]]; then
-        log_info "Deploying Failure Flags sidecar..."
-        "$SCRIPT_DIR/scripts/operations/deploy_failure_flags.sh" \
-            --cluster-name "$CLUSTER_NAME"
-    fi
+    # Deploy failure flags if enabled (unified function)
+    deploy_failure_flags_if_enabled || {
+        log_warning "Failure flags deployment failed, continuing..."
+    }
     
     # Setup monitoring (skip per-app ingresses when CONSOLIDATED_INGRESS=true)
     CONSOLIDATED_INGRESS=true setup_comprehensive_monitoring "$MONITORING_PLATFORM"
 
-    # Apply cross-namespace services to route monitoring through consolidated ALB
-    log_info "Applying cross-namespace services for consolidated ingress..."
-    if [[ -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" ]]; then
-        kubectl apply -f "$SCRIPT_DIR/otel-demo-cross-namespace-services.yaml" || {
-            log_error "Failed to apply cross-namespace services"
-            return 1
-        }
-    else
-        log_warning "Cross-namespace services file not found: $SCRIPT_DIR/otel-demo-cross-namespace-services.yaml"
-    fi
+    # Apply cross-namespace services (unified function)
+    apply_cross_namespace_services
 
-    # NOTE: Consolidated ingress creation removed - Terraform creates ALB listener rules
-    # Terraform ALB module handles target groups and routing configuration
+    # Setup consolidated ingress and DNS (creates ingresses for ALB controller)
+    setup_consolidated_ingress_and_dns
 
-    # Remove any legacy per-app ingresses if they exist (idempotent cleanup)
-    kubectl delete ingress -n otel-demo frontend-proxy jaeger-ingress 2>/dev/null || true
-    kubectl delete ingress -n monitoring grafana-ingress prometheus-ingress 2>/dev/null || true
+    # Remove legacy ingresses (unified function)
+    cleanup_legacy_ingresses
     
-    # Export cluster state
-    export_cluster_state "$CLUSTER_NAME" "$AWS_REGION"
-    
-    # Display endpoints
-    display_workshop_endpoints
+    # Finalize deployment (unified function)
+    finalize_deployment "$CLUSTER_NAME" "$AWS_REGION"
 }
 
 deploy_to_existing() {
@@ -276,62 +273,68 @@ deploy_to_existing() {
     validate_cluster_exists "$CLUSTER_NAME" "$AWS_REGION"
     update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
     
-    # Check for existing installations and handle conflicts
-    log_info "Checking for existing installations..."
-    
-    # Check for existing OpenTelemetry Demo
-    if helm list -n otel-demo -q | grep -q "opentelemetry-demo"; then
-        log_warning "Existing OpenTelemetry Demo found. Upgrading in place..."
-        helm upgrade opentelemetry-demo open-telemetry/opentelemetry-demo -n otel-demo --reuse-values || {
-            log_warning "Upgrade failed, uninstalling and reinstalling..."
-            helm uninstall opentelemetry-demo -n otel-demo --ignore-not-found
-            sleep 10
-        }
+    # Try to get SUBDOMAIN from Terraform if not already set
+    if [[ -z "$SUBDOMAIN" ]] && [[ -n "$OWNER" ]]; then
+        log_info "Attempting to get SUBDOMAIN from Terraform outputs..."
+        # Try to find terraform workspace by owner
+        for workspace_dir in /Users/seanwiley/terraform/workspace/*; do
+            if [[ -d "$workspace_dir" ]]; then
+                local ws_cluster=$(cd "$workspace_dir" && terraform output -raw cluster_name 2>/dev/null || echo "")
+                if [[ "$ws_cluster" == "$CLUSTER_NAME" ]]; then
+                    SUBDOMAIN=$(cd "$workspace_dir" && terraform output -raw subdomain 2>/dev/null || echo "")
+                    if [[ -n "$SUBDOMAIN" ]]; then
+                        log_success "Found SUBDOMAIN from Terraform: $SUBDOMAIN"
+                        export SUBDOMAIN
+                        break
+                    fi
+                fi
+            fi
+        done
     fi
     
-    # Check for existing Gremlin installation
-    if helm list -n gremlin -q | grep -q "gremlin"; then
-        log_warning "Existing Gremlin installation found. Uninstalling first..."
-        helm uninstall gremlin -n gremlin --ignore-not-found
-        sleep 10
+    # If still no SUBDOMAIN, warn user
+    if [[ -z "$SUBDOMAIN" ]]; then
+        log_warning "SUBDOMAIN not set - DNS and health checks may use cluster name instead"
+        log_info "Set SUBDOMAIN environment variable or pass --subdomain flag"
     fi
     
-    # Deploy OpenTelemetry demo
+    # Ensure credentials are available (unified function)
+    ensure_gremlin_credentials || {
+        log_error "Cannot proceed without Gremlin credentials"
+        exit 1
+    }
+    
+    # Deploy OpenTelemetry demo (idempotent via deploy_otel.sh)
     "$SCRIPT_DIR/scripts/operations/deploy_otel.sh" \
         --cluster-name "$CLUSTER_NAME"
     
-    # Install Gremlin
-    GREMLIN_TEAM_ID="$GREMLIN_TEAM_ID" \
-    GREMLIN_TEAM_SECRET="$GREMLIN_TEAM_SECRET" \
-    GREMLIN_API_KEY="$GREMLIN_API_KEY" \
-    "$SCRIPT_DIR/scripts/gremlin_install.sh" \
-        --cluster-name "$CLUSTER_NAME" \
-        --team-id "$GREMLIN_TEAM_ID" \
-        --team-secret "$GREMLIN_TEAM_SECRET" \
-        --api-key "$GREMLIN_API_KEY"
+    # Setup Gremlin (unified function - includes idempotency checks)
+    setup_gremlin_complete "$CLUSTER_NAME" || {
+        log_warning "Gremlin setup failed, continuing with remaining deployment..."
+    }
     
-    # Apply Gremlin service annotations
-    log_info "Applying Gremlin service annotations..."
-    "$SCRIPT_DIR/config/gremlin/gremlin_annotations.sh" otel-demo
-    
-    # Deploy failure flags if requested
-    if [[ "$ENABLE_FAILURE_FLAGS" == "true" ]]; then
-        log_info "Deploying Failure Flags sidecar..."
-        "$SCRIPT_DIR/scripts/operations/deploy_failure_flags.sh" \
-            --cluster-name "$CLUSTER_NAME"
-    fi
+    # Deploy failure flags if enabled (unified function)
+    deploy_failure_flags_if_enabled || {
+        log_warning "Failure flags deployment failed, continuing..."
+    }
     
     # Setup monitoring
-    MONITORING_PLATFORM="$MONITORING_PLATFORM" setup_comprehensive_monitoring "$MONITORING_PLATFORM"
+    setup_comprehensive_monitoring "$MONITORING_PLATFORM"
     
-    # Setup consolidated ingress and DNS
+    # Apply cross-namespace services (unified function)
+    apply_cross_namespace_services
+    
+    # Setup consolidated ingress and DNS (creates ingresses for ALB controller)
     setup_consolidated_ingress_and_dns
     
-    # Export cluster state
-    export_cluster_state "$CLUSTER_NAME" "$AWS_REGION"
+    # Remove legacy ingresses (unified function)
+    cleanup_legacy_ingresses
     
-    # Display endpoints
-    display_workshop_endpoints
+    # Setup Gremlin monitoring (health checks)
+    setup_gremlin_monitoring
+    
+    # Finalize deployment (unified function)
+    finalize_deployment "$CLUSTER_NAME" "$AWS_REGION"
 }
 
 setup_gremlin_only() {
@@ -341,22 +344,17 @@ setup_gremlin_only() {
     validate_cluster_exists "$CLUSTER_NAME" "$AWS_REGION"
     update_kubeconfig "$CLUSTER_NAME" "$AWS_REGION"
     
-    # Install Gremlin
-    GREMLIN_TEAM_ID="$GREMLIN_TEAM_ID" \
-    GREMLIN_TEAM_SECRET="$GREMLIN_TEAM_SECRET" \
-    GREMLIN_API_KEY="$GREMLIN_API_KEY" \
-    "$SCRIPT_DIR/scripts/gremlin_install.sh" \
-        --cluster-name "$CLUSTER_NAME" \
-        --team-id "$GREMLIN_TEAM_ID" \
-        --team-secret "$GREMLIN_TEAM_SECRET" \
-        --api-key "$GREMLIN_API_KEY"
+    # Ensure credentials are available (unified function)
+    ensure_gremlin_credentials || {
+        log_error "Cannot proceed without Gremlin credentials"
+        exit 1
+    }
     
-    # Apply Gremlin service annotations
-    log_info "Applying Gremlin service annotations..."
-    "$SCRIPT_DIR/config/gremlin/gremlin_annotations.sh" otel-demo
+    # Setup Gremlin (unified function - includes installation, annotations, and permissions)
+    setup_gremlin_complete "$CLUSTER_NAME"
     
-    # Setup Gremlin monitoring
-    MONITORING_PLATFORM="$MONITORING_PLATFORM" setup_gremlin_monitoring
+    # Setup Gremlin monitoring (health checks)
+    setup_gremlin_monitoring
     
     log_success "Gremlin setup completed!"
 }
