@@ -17,7 +17,7 @@ Deploys a complete chaos engineering demo environment:
 
 **Access URLs:**
 - Frontend: `https://demo-frontend.{your-subdomain}.gremlinpoc.com`
-- Grafana: `https://monitoring.{your-subdomain}.gremlinpoc.com` (admin/prom-operator)
+- Grafana: `https://monitoring.{your-subdomain}.gremlinpoc.com` (admin/admin###)
 - Gremlin: `https://app.gremlin.com/services`
 
 ---
