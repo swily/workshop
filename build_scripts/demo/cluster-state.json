@@ -1,0 +1,18 @@
+{
+  "cluster_name": "seanwm00-eks",
+  "subdomain": "seanwm00",
+  "region": "us-east-2",
+  "scheme": "https",
+  "endpoints": {
+    "frontend": "",
+    "frontend_fqdn": "https://demo-frontend.seanwm00.gremlinpoc.com",
+    "grafana_monitoring": "",
+    "monitoring_fqdn": "https://monitoring.seanwm00.gremlinpoc.com"
+  },
+  "dns_mappings": {
+    "demo-frontend.seanwm00.gremlinpoc.com": "frontend",
+    "monitoring.seanwm00.gremlinpoc.com": "grafana_monitoring",
+    "monitoring.seanwm00.gremlinpoc.com/prometheus": "prometheus"
+  },
+  "deployment_timestamp": "2025-12-05T23:53:46Z"
+}

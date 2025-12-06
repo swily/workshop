@@ -1,0 +1,85 @@
+# GOLDEN EKS CLUSTER CONFIGURATION
+# This configuration is PROVEN to work - DO NOT MODIFY without testing
+# Based on working cluster: jheller-otel-redux
+# Last verified: 2025-08-15
+
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${CLUSTER_NAME}
+  region: ${AWS_REGION}
+  version: "1.31"  # CRITICAL: Do not change without testing
+
+# CRITICAL: OIDC must be enabled for VPC CNI to work
+iam:
+  withOIDC: true
+  serviceAccounts:
+    - metadata:
+        name: aws-node
+        namespace: kube-system
+      wellKnownPolicies:
+        awsVpcCni: true  # CRITICAL: Required for node networking
+
+# VPC Configuration - use existing VPC and subnets
+vpc:
+  # These are the PROVEN working subnets - PUBLIC ONLY
+  subnets:
+    public:
+      us-west-2a: { id: subnet-0fe7be30ec2528c4c }
+      us-west-2b: { id: subnet-08038efe886c31791 }
+      us-west-2c: { id: subnet-0135b61262e48f4d6 }
+
+# Node Group Configuration - PROVEN working settings
+managedNodeGroups:
+  - name: workshop-nodes
+    # CRITICAL: Use PUBLIC subnets only
+    subnets:
+      - subnet-0fe7be30ec2528c4c
+      - subnet-08038efe886c31791
+      - subnet-0135b61262e48f4d6
+    
+    # CRITICAL: Attach the proven security group
+    securityGroups:
+      attachIDs:
+        - sg-0a499ed85cbdf45c5  # PROVEN working security group
+    
+    # Instance configuration
+    instanceTypes:
+      - t3.medium
+      - t3a.medium
+      - t2.medium
+    
+    # CRITICAL: Use the proven AMI type
+    ami: AL2023_x86_64_STANDARD
+    
+    # Capacity settings
+    capacityType: SPOT
+    desiredCapacity: 5
+    minSize: 5
+    maxSize: 8
+    
+    # Node configuration
+    volumeSize: 100
+    volumeType: gp3
+    
+    # SSH access (optional)
+    ssh:
+      allow: true
+
+# CloudWatch logging
+cloudWatch:
+  clusterLogging:
+    enable: ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+# Add-ons with specific versions
+addons:
+  - name: vpc-cni
+    version: latest
+    serviceAccountRoleARN: arn:aws:iam::${AWS_ACCOUNT_ID}:role/eksctl-${CLUSTER_NAME}-addon-vpc-cni-Role
+  - name: coredns
+    version: latest
+  - name: kube-proxy
+    version: latest
+  - name: aws-ebs-csi-driver
+    version: latest

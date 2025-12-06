@@ -1,0 +1,51 @@
+apiVersion: kiali.io/v1alpha1
+kind: Kiali
+metadata:
+  name: kiali
+  namespace: istio-system
+  labels:
+    app: kiali
+    version: v1.57.2
+spec:
+  deployment:
+    accessible_namespaces: ['**']
+    image_pull_policy: IfNotPresent
+    image_version: v1.57.2
+    logger:
+      log_level: info
+      time_field_format: 2006-01-02T15:04:05Z07:00
+    pod_annotations: {}
+    pod_labels: {}
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  external_services:
+    prometheus:
+      url: http://prometheus-server.istio-system.svc.cluster.local
+    grafana:
+      enabled: false
+    tracing:
+      enabled: true
+      in_cluster_url: http://tracing/jaeger-query
+    istio:
+      component_status:
+        components:
+        - app_label: istiod
+          is_core: true
+        - app_label: istio-ingressgateway
+          is_core: true
+  auth:
+    strategy: anonymous
+  server:
+    metrics_enabled: true
+    metrics_port: 9090
+    port: 20001
+    web_root: /kiali
+  install_service_account: true
+  istio_namespace: istio-system
+  version: v1.57.2

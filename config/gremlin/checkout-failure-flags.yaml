@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-demo-checkoutservice-ff
+  namespace: otel-demo
+  labels:
+    app.kubernetes.io/component: checkoutservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+    app.kubernetes.io/version: "2.0.2"
+    gremlin.com/failure-flags: "enabled"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: checkoutservice
+      app.kubernetes.io/instance: opentelemetry-demo
+      app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: checkoutservice
+        app.kubernetes.io/instance: opentelemetry-demo
+        app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+        app.kubernetes.io/version: "2.0.2"
+        gremlin.com/failure-flags: "enabled"
+    spec:
+      serviceAccountName: opentelemetry-demo-checkoutservice
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+      - name: checkout
+        image: ghcr.io/open-telemetry/demo:latest-checkoutservice
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: service
+          protocol: TCP
+        env:
+        - name: CHECKOUT_SERVICE_PORT
+          value: "8080"
+        - name: CART_ADDR
+          value: opentelemetry-demo-cartservice:8080
+        - name: CURRENCY_ADDR
+          value: opentelemetry-demo-currencyservice:8080
+        - name: EMAIL_ADDR
+          value: http://opentelemetry-demo-emailservice:8080
+        - name: PAYMENT_ADDR
+          value: opentelemetry-demo-paymentservice:8080
+        - name: PRODUCT_CATALOG_SERVICE_ADDR
+          value: opentelemetry-demo-productcatalogservice:8080
+        - name: SHIPPING_ADDR
+          value: opentelemetry-demo-shippingservice:8080
+        - name: KAFKA_ADDR
+          value: opentelemetry-demo-kafka:9092
+        - name: FLAGD_HOST
+          value: opentelemetry-demo-flagd
+        - name: FLAGD_PORT
+          value: "8013"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://$(OTEL_COLLECTOR_NAME):4317
+        - name: OTEL_RESOURCE_ATTRIBUTES
+          value: service.name=$(OTEL_SERVICE_NAME),service.namespace=opentelemetry-demo,service.version=2.0.2
+        - name: OTEL_SERVICE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.labels['app.kubernetes.io/component']
+        - name: OTEL_COLLECTOR_NAME
+          value: opentelemetry-demo-otelcol
+        # Gremlin Failure Flags Proxy Configuration
+        - name: HTTP_PROXY
+          value: "http://localhost:5034"
+        - name: HTTPS_PROXY
+          value: "http://localhost:5034"
+        resources:
+          limits:
+            memory: 20Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          grpc:
+            port: 8080
+          initialDelaySeconds: 10
+        readinessProbe:
+          grpc:
+            port: 8080
+          initialDelaySeconds: 5
+      - name: gremlin-sidecar
+        image: gremlin/failure-flags-sidecar:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5034
+          name: dep-proxy
+          protocol: TCP
+        - containerPort: 5035
+          name: ingress-proxy
+          protocol: TCP
+        env:
+        - name: GREMLIN_SIDECAR_ENABLED
+          value: "true"
+        - name: GREMLIN_INGRESS_PROXY_ENABLED
+          value: "true"
+        - name: GREMLIN_INGRESS_PROXY_PORT
+          value: ":5035"
+        - name: GREMLIN_DEPENDENCY_PROXY_ENABLED
+          value: "true"
+        - name: GREMLIN_DEPENDENCY_PROXY_PORT
+          value: "localhost:5034"
+        - name: GREMLIN_TEAM_ID
+          value: "438c58ec-03db-47ac-8c58-ec03db67ac42"
+        - name: GREMLIN_TEAM_CERTIFICATE
+          value: |
+            -----BEGIN CERTIFICATE-----
+            MIIB7TCCAZSgAwIBAgIBATAKBggqhkjOPQQDAjBxMSMwIQYDVQQDDBpHcmVtbGlu
+            IENsaWVudCBDZXJ0aWZpY2F0ZTElMCMGA1UECwwcR3JlbWxpbiBTb2x1dGlvbnMg
+            QXJjaGl0ZWN0czEjMCEGA1UECgwaRmlnQ2xvcHNFbnRlcnByaXNlcyAtIFNlYW4w
+            HhcNMjUwMzMxMTgyOTE1WhcNMjYwMzMxMTgyOTE1WjBxMSMwIQYDVQQDDBpHcmVt
+            bGluIENsaWVudCBDZXJ0aWZpY2F0ZTElMCMGA1UECwwcR3JlbWxpbiBTb2x1dGlv
+            bnMgQXJjaGl0ZWN0czEjMCEGA1UECgwaRmlnQ2xvcHNFbnRlcnByaXNlcyAtIFNl
+            YW4wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQTk7S9HRgXCQcTnhLlHeyJG+Jt
+            IoDTnSd92Gz9vVsx5+Zh+Tl6Qni0ct6g84reuEzv9tYNws82onpvdyJd41KAox0w
+            GzAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIHgDAKBggqhkjOPQQDAgNHADBEAiAi
+            iG3gU+gmihrNfIMVsdV41CxhgD0Bca9VP3qUbcKcSQIgIfAoUIYc/UXIVwrifz0m
+            uPUaQ08zctqzMZlFCNsHJ6I=
+            -----END CERTIFICATE-----
+        - name: GREMLIN_TEAM_PRIVATE_KEY
+          value: |
+            -----BEGIN EC PRIVATE KEY-----
+            MHcCAQEEIGs2Vo2eIIZXpdgju5lV9FyoHa7b6Wzf4gO1hfwCGkzBoAoGCCqGSM49
+            AwEHoUQDQgAEE5O0vR0YFwkHE54S5R3siRvibSKA050nfdhs/b1bMefmYfk5ekJ4
+            tHLeoPOK3rhM7/bWDcLPNqJ6b3ciXeNSgA==
+            -----END EC PRIVATE KEY-----
+        - name: SERVICE_NAME
+          value: "checkout"
+        - name: GREMLIN_INGRESS_PROXIED_ENDPOINT
+          value: "http://localhost:8080"
+        - name: GREMLIN_DEBUG
+          value: "true"
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        # Health checks temporarily disabled to prevent restart loop
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 5034
+        #   initialDelaySeconds: 15
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   httpGet:
+        #     path: /ready
+        #     port: 5034
+        #   initialDelaySeconds: 5
+        #   periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-demo-checkoutservice-ff
+  namespace: otel-demo
+  labels:
+    app.kubernetes.io/component: checkoutservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+    gremlin.com/failure-flags: "enabled"
+spec:
+  type: ClusterIP
+  ports:
+  - name: service
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  - name: ingress-proxy
+    port: 5035
+    protocol: TCP
+    targetPort: 5035
+  selector:
+    app.kubernetes.io/component: checkoutservice
+    app.kubernetes.io/instance: opentelemetry-demo
+    app.kubernetes.io/name: opentelemetry-demo-checkoutservice
+    gremlin.com/failure-flags: "enabled"

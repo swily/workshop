@@ -1,0 +1,18 @@
+apiUrl: https://qpm46186.live.dynatrace.com/api
+tokens: dynatrace-api-token
+oneAgent:
+  classicFullStack:
+    tolerations:
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/master
+      operator: Exists
+    - effect: NoSchedule
+      key: node-role.kubernetes.io/control-plane
+      operator: Exists
+activeGate:
+  capabilities:
+    - routing
+    - kubernetes-monitoring
+  group: default
+kubernetesMonitoring:
+  enabled: true
